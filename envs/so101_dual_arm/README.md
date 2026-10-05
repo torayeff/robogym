@@ -3,7 +3,7 @@
 Two SO-101 arms with wrist cameras and an overhead camera, on a table with a prism and a storage tray.
 
 ```bash
-uv run so101_dual_arm/sim.py
+uv run envs/so101_dual_arm/view.py
 ```
 
 Opens the MuJoCo viewer in the folded rest pose. Drive the 12 position actuators (`{left,right}_{shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper}`, radians) with the Control sliders. Cameras: `overview`, `top_camera`, `left_wrist_camera`, `right_wrist_camera`.

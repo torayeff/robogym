@@ -1,6 +1,6 @@
 """Open the bimanual SO-101 scene in the MuJoCo viewer, starting from the folded rest pose.
 
-    uv run so101_dual_arm/sim.py
+    uv run envs/so101_dual_arm/view.py
 """
 
 from pathlib import Path
