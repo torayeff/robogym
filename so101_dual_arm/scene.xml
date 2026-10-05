@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="so101_dual_arm">
+  <!-- Bimanual SO-101 on a 100 x 60 x 74 cm table with a prism and an open storage tray. -->
+  <compiler angle="radian" />
+  <option timestep="0.00208333333333" integrator="implicitfast" iterations="50" ls_iterations="20" cone="elliptic" />
+  <default>
+    <default class="table">
+      <geom type="cylinder" material="frame" friction="0.55 0.005 0.0001" condim="4" solref="0.006 1" solimp="0.95 0.99 0.001" />
+    </default>
+    <default class="object">
+      <geom type="box" material="red" mass="0" friction="0.5 0.005 0.0001" condim="6" solref="0.006 1" solimp="0.95 0.99 0.001" />
+    </default>
+  </default>
+  <asset>
+    <model name="robot" file="robot/so101_bimanual.xml" />
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
+    <texture name="ground" type="2d" builtin="checker" mark="edge" rgb1="0.18 0.28 0.38" rgb2="0.12 0.22 0.32" markrgb="0.6 0.6 0.6" width="300" height="300" />
+    <material name="ground" texture="ground" texuniform="true" texrepeat="5 5" reflectance="0.2" />
+    <material name="laminate" rgba="0.88 0.88 0.88 1" roughness="0.43" />
+    <material name="frame" rgba="0.82 0.82 0.82 1" roughness="0.36" />
+    <material name="foot" rgba="0.12 0.13 0.15 1" roughness="0.8" />
+    <material name="red" rgba="0.65 0.012 0.008 1" roughness="0.53" />
+  </asset>
+  <worldbody>
+    <geom name="ground" type="plane" size="0 0 0.1" material="ground" />
+    <light pos="0.45 -0.38 2.3" dir="-0.1418 0.2343 -0.9618" directional="true" diffuse="3 3 3" ambient="0.8 0.8 0.8" />
+    <light pos="-0.45 0.65 2.12" dir="0.35 -0.3992 -0.8474" directional="true" diffuse="1.4 1.4 1.4" />
+    <light pos="0.12 1.18 1.82" dir="0.0284 -0.8371 -0.5463" directional="true" diffuse="0.8 0.8 0.8" />
+    <camera name="overview" pos="1.7 -1.85 1.7" xyaxes="0.7604 0.6494 0 -0.2635 0.3085 0.914" fovy="39" />
+
+    <geom name="tabletop" class="table" type="box" pos="0.25 0 0.723" size="0.3 0.5 0.017" material="laminate" />
+    <geom class="table" pos="0.015 -0.435 0.359" size="0.02 0.339" />
+    <geom class="table" pos="0.015 0.435 0.359" size="0.02 0.339" />
+    <geom class="table" pos="0.485 -0.435 0.359" size="0.02 0.339" />
+    <geom class="table" pos="0.485 0.435 0.359" size="0.02 0.339" />
+    <geom class="table" pos="0.015 -0.435 0.01" size="0.02 0.01" material="foot" />
+    <geom class="table" pos="0.015 0.435 0.01" size="0.02 0.01" material="foot" />
+    <geom class="table" pos="0.485 -0.435 0.01" size="0.02 0.01" material="foot" />
+    <geom class="table" pos="0.485 0.435 0.01" size="0.02 0.01" material="foot" />
+
+    <!-- Rig origin is the mast foot; the rear mounting-plate edge lines up with the tabletop rear edge (x = -0.05). -->
+    <frame pos="-0.031299085 0 0.74">
+      <attach model="robot" prefix="" />
+    </frame>
+
+    <!-- 20 x 20 x 70 mm, 11 g. -->
+    <body name="prism" pos="0.27 -0.1 0.741" childclass="object">
+      <freejoint />
+      <inertial mass="0.011" pos="0 0 0.035" diaginertia="4.858e-06 4.858e-06 7.333e-07" />
+      <geom pos="0 0 0.035" size="0.01 0.01 0.035" />
+    </body>
+
+    <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. -->
+    <body name="storage" pos="0.27 0.1 0.741" childclass="object">
+      <freejoint />
+      <inertial mass="0.05" pos="0 0 0.009494" diaginertia="6.354e-05 6.354e-05 0.0001186" />
+      <geom pos="0 0 0.002" size="0.05 0.05 0.002" />
+      <geom pos="0.048 0 0.017" size="0.002 0.046 0.013" />
+      <geom pos="-0.048 0 0.017" size="0.002 0.046 0.013" />
+      <geom pos="0 0.048 0.017" size="0.05 0.002 0.013" />
+      <geom pos="0 -0.048 0.017" size="0.05 0.002 0.013" />
+    </body>
+  </worldbody>
+  <keyframe>
+    <!-- Folded rest pose. qpos: left arm (6), right arm (6), prism (7), storage (7). -->
+    <key name="rest"
+      qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.27 -0.1 0.741 1 0 0 0  0.27 0.1 0.741 1 0 0 0"
+      ctrl="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745" />
+  </keyframe>
+</mujoco>
