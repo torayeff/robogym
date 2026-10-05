@@ -121,8 +121,8 @@
                 </frame>
                 <body name="wrist_camera" pos="0.0025 -0.0721 0.0041" quat="0.380968407761 0.595703903651 0.595703577007 -0.380968738618">
                   <inertial pos="0.0018 0 0" mass="0.010" fullinertia="7.551e-07 8.188e-07 8.261e-07 0 0 0" />
-                  <!-- At the lens front: the lens reaches 15.5 mm, so a camera at the body origin renders its own housing. -->
-                  <camera name="wrist_camera" pos="0.016 0 0" xyaxes="0 -1 0 0 0 1" fovy="73.4799347897" resolution="640 480" />
+                  <!-- At the lens front: the lens reaches 15.5 mm, so a camera at the body origin renders its own housing. fovy is the lens's vertical field of view; ../camera.py adds its distortion. -->
+                  <camera name="wrist_camera" pos="0.016 0 0" xyaxes="0 -1 0 0 0 1" fovy="59.625" resolution="640 480" />
                   <geom class="visual" mesh="u20cam_1080p" material="u20cam" />
                   <geom name="wrist_camera_pcb" class="camera_collision" pos="-0.0048 0 0" size="0.0008 0.016 0.016" />
                   <geom name="wrist_camera_holder" class="camera_collision" pos="-0.002 0 0" size="0.002 0.007 0.007" />
