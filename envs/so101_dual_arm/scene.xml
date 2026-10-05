@@ -22,7 +22,7 @@
     <model name="robot" file="robot/so101_bimanual.xml" />
     <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
     <texture name="ground" type="2d" builtin="checker" mark="edge" rgb1="0.18 0.28 0.38" rgb2="0.12 0.22 0.32" markrgb="0.6 0.6 0.6" width="300" height="300" />
-    <material name="ground" texture="ground" texuniform="true" texrepeat="5 5" reflectance="0.2" />
+    <material name="ground" texture="ground" texuniform="true" texrepeat="5 5" />
     <material name="laminate" rgba="0.88 0.88 0.88 1" roughness="0.43" />
     <material name="frame" rgba="0.82 0.82 0.82 1" roughness="0.36" />
     <material name="foot" rgba="0.12 0.13 0.15 1" roughness="0.8" />
@@ -30,8 +30,8 @@
   </asset>
   <worldbody>
     <geom name="ground" type="plane" size="0 0 0.1" material="ground" />
-    <!-- Light adds up and clips at white, so diffuse plus ambient stays near 1 on surfaces facing up. Only the key casts shadows; the ambient sits on the fill because a light's shadow also blocks its ambient. -->
-    <light name="key" pos="0.45 -0.38 2.3" dir="-0.1418 0.2343 -0.9618" directional="true" diffuse="0.45 0.45 0.45" specular="0.2 0.2 0.2" />
+    <!-- Light adds up and clips at white, so diffuse plus ambient stays near 1 on surfaces facing up. Shadows and floor reflection are off: each adds a render pass over the arm meshes for every camera. The ambient sits on the fill because a light's shadow also blocks its ambient. -->
+    <light name="key" pos="0.45 -0.38 2.3" dir="-0.1418 0.2343 -0.9618" directional="true" diffuse="0.45 0.45 0.45" specular="0.2 0.2 0.2" castshadow="false" />
     <light name="fill" pos="-0.45 0.65 2.12" dir="0.35 -0.3992 -0.8474" directional="true" diffuse="0.15 0.15 0.15" ambient="0.35 0.35 0.35" specular="0 0 0" castshadow="false" />
     <camera name="overview" pos="1.7 -1.85 1.7" xyaxes="0.7604 0.6494 0 -0.2635 0.3085 0.914" fovy="39" />
 
@@ -50,16 +50,16 @@
       <attach model="robot" prefix="" />
     </frame>
 
-    <!-- 20 x 20 x 70 mm, 11 g. -->
-    <body name="prism" pos="0.27 -0.1 0.74" childclass="object">
-      <freejoint />
+    <!-- 20 x 20 x 70 mm, 11 g. Close enough to the arms that a straight-down gripper clears its top; wrist_flex caps how high it can reach. -->
+    <body name="prism" pos="0.23 -0.1 0.74" childclass="object">
+      <freejoint name="prism" />
       <inertial mass="0.011" pos="0 0 0.035" diaginertia="4.858e-06 4.858e-06 7.333e-07" />
       <geom pos="0 0 0.035" size="0.01 0.01 0.035" />
     </body>
 
     <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. -->
-    <body name="storage" pos="0.27 0.1 0.74" childclass="object">
-      <freejoint />
+    <body name="storage" pos="0.23 0.1 0.74" childclass="object">
+      <freejoint name="storage" />
       <inertial mass="0.05" pos="0 0 0.009494" diaginertia="6.354e-05 6.354e-05 0.0001186" />
       <geom pos="0 0 0.002" size="0.05 0.05 0.002" />
       <geom pos="0.048 0 0.017" size="0.002 0.046 0.013" />
@@ -71,7 +71,7 @@
   <keyframe>
     <!-- Folded rest pose. qpos: left arm (6), right arm (6), prism (7), storage (7). -->
     <key name="rest"
-      qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.27 -0.1 0.74 1 0 0 0  0.27 0.1 0.74 1 0 0 0"
+      qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.23 -0.1 0.74 1 0 0 0  0.23 0.1 0.74 1 0 0 0"
       ctrl="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745" />
   </keyframe>
 </mujoco>

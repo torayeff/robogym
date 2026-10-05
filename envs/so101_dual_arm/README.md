@@ -6,7 +6,7 @@ Two SO-101 arms with wrist cameras and an overhead camera, on a table with a pri
 uv run envs/so101_dual_arm/view.py
 ```
 
-Opens the MuJoCo viewer in the folded rest pose. Drive the 12 position actuators (`{left,right}_{shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper}`, radians) with the Control sliders. Cameras: `overview`, `top_camera`, `left_wrist_camera`, `right_wrist_camera`.
+Opens the MuJoCo viewer in the folded rest pose. Drive the 12 position actuators (`{left,right}_{shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper}`, radians) with the Control sliders. Cameras: `overview`, `top_camera`, `left_wrist_camera`, `right_wrist_camera`. The prism and tray have free joints named `prism` and `storage`.
 
 - `scene.xml`: floor, lights, table, prism, tray, rest keyframe.
 - `robot/so101_bimanual.xml`: mounting rig and overhead camera; attaches `so101.xml` twice, prefixed `left_` and `right_`.
@@ -17,12 +17,14 @@ Opens the MuJoCo viewer in the folded rest pose. Drive the 12 position actuators
 
 The arm is The Robot Studio's open-source [SO-101](https://github.com/TheRobotStudio/SO-ARM100).
 
-`robot/so101.xml` is adapted from [MuJoCo Menagerie `robotstudio_so101`](https://github.com/google-deepmind/mujoco_menagerie/tree/822c2d8f877dd166c5b7d3c9f7e3c3b6589473b7/robotstudio_so101) at revision `822c2d8`, which Menagerie derived from The Robot Studio's [SO101 MJCF](https://github.com/TheRobotStudio/SO-ARM100/blob/608122e9ac330a753735f2e18aee73338e9ac407/Simulation/SO101/so101_new_calib.xml). Unchanged from Menagerie: body frames; joint limits, damping, friction loss and armature; the position actuator gains (kp 998.22, kv 2.731, ±2.94 N·m); arm and gripper collision geometry; and every link inertia except the gripper's. Changes:
+`robot/so101.xml` is adapted from [MuJoCo Menagerie `robotstudio_so101`](https://github.com/google-deepmind/mujoco_menagerie/tree/822c2d8f877dd166c5b7d3c9f7e3c3b6589473b7/robotstudio_so101) at revision `822c2d8`, which Menagerie derived from The Robot Studio's [SO101 MJCF](https://github.com/TheRobotStudio/SO-ARM100/blob/608122e9ac330a753735f2e18aee73338e9ac407/Simulation/SO101/so101_new_calib.xml). Unchanged from Menagerie: body frames; joint limits, damping, friction loss and armature; the position actuator gains (kp 998.22, kv 2.731, ±2.94 N·m); the collision geometry from the upper arm to the gripper; and every link inertia except the gripper's. Changes:
 
 - Printed parts are white instead of yellow.
 - The fixed jaw is drawn with the SO-ARM100 wrist camera mount, replacing Menagerie's fixed-jaw and camera-mount meshes. It holds a 10 g U20CAM camera (640 × 480, 73.48° vertical field of view) with box collision envelopes.
 - The gripper link is 0.0939 kg (Menagerie: 0.087 kg), with its own inertia, to suit this mount.
 - The `wrist_roll` control range is ±2.74385 rad, matching its joint range (Menagerie: −2.74385 to 2.84121, past the joint limit).
+- The base and shoulder have collision boxes fitted to their meshes. Menagerie has none on the base, and its two shoulder boxes leave up to 14 mm of the bracket and servo uncovered. The base is welded to the world, which MuJoCo's parent-child filter skips, so a `<contact><exclude>` keeps the base and shoulder boxes apart.
+- Gripper contacts use `solref="0.006 1"` and `solimp="0.95 0.99 0.001"` (Menagerie: `0.01 1`, the stiffest its 5 ms timestep allows, and the default `solimp`). The gripper geoms have contact priority, so these values apply to every grasp: at full grip the fingertips sink about 1 mm into the prism instead of 2.5 mm.
 - Menagerie's `<option>`, `<visual>`, comments, and unused defaults and meshes are dropped; `scene.xml` sets the simulation and visual options.
 
 | Meshes in `robot/assets/` | Source | Changes |
@@ -34,4 +36,4 @@ The arm is The Robot Studio's open-source [SO-101](https://github.com/TheRobotSt
 
 Menagerie's `robotstudio_so101` and SO-ARM100 are both licensed under Apache-2.0; [robot/LICENSE](robot/LICENSE) is a copy of that license.
 
-The rig (`robot/so101_bimanual.xml`: part placement, collision boxes, overhead camera) and `scene.xml` are authored for this project. The table approximates an IKEA LINNMON/ADILS (100 × 60 cm top, 74 cm high). The prism and tray are box primitives with uniform-density inertias.
+The rig (`robot/so101_bimanual.xml`: part placement, collision boxes, overhead camera) and `scene.xml` are authored for this project. The table approximates an IKEA LINNMON/ADILS (100 × 60 cm top, 74 cm high). The prism and tray are box primitives with uniform-density inertias. They sit at x = 0.23 m, about as close to the arms as helps: `wrist_flex` (±95°) keeps a straight-down gripper's fingertips below about 0.83 m, 9 cm above the table, wherever the target is, and from x = 0.23 m that still clears the prism's 0.81 m top.
