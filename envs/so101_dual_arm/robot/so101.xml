@@ -111,8 +111,9 @@
                 </frame>
                 <body name="wrist_camera" pos="0.0025 -0.0721 0.0041" quat="0.380968407761 0.595703903651 0.595703577007 -0.380968738618">
                   <inertial pos="0.0018 0 0" mass="0.010" fullinertia="7.551e-07 8.188e-07 8.261e-07 0 0 0" />
-                  <camera name="wrist_camera" xyaxes="0 -1 0 0 0 1" fovy="73.4799347897" resolution="640 480" />
-                  <geom type="mesh" mesh="u20cam_1080p" material="u20cam" contype="0" conaffinity="0" />
+                  <!-- At the lens front: the lens reaches 15.5 mm, so a camera at the body origin renders its own housing. -->
+                  <camera name="wrist_camera" pos="0.016 0 0" xyaxes="0 -1 0 0 0 1" fovy="73.4799347897" resolution="640 480" />
+                  <geom class="visual" mesh="u20cam_1080p" material="u20cam" />
                   <geom name="wrist_camera_pcb" class="camera_collision" pos="-0.0048 0 0" size="0.0008 0.016 0.016" />
                   <geom name="wrist_camera_holder" class="camera_collision" pos="-0.002 0 0" size="0.002 0.007 0.007" />
                   <geom name="wrist_camera_lens" class="camera_collision" pos="0.00775 0 0" size="0.0075 0.00775" type="cylinder" quat="0.7071067811865476 0 0.7071067811865476 0" />
@@ -142,7 +143,7 @@
     <position class="sts3215" name="shoulder_lift" joint="shoulder_lift" ctrlrange="-1.74533 1.74533" />
     <position class="sts3215" name="elbow_flex" joint="elbow_flex" ctrlrange="-1.69 1.69" />
     <position class="sts3215" name="wrist_flex" joint="wrist_flex" ctrlrange="-1.65806 1.65806" />
-    <position class="sts3215" name="wrist_roll" joint="wrist_roll" ctrlrange="-2.74385 2.84121" />
+    <position class="sts3215" name="wrist_roll" joint="wrist_roll" ctrlrange="-2.74385 2.74385" />
     <position class="sts3215" name="gripper" joint="gripper" ctrlrange="-0.17453 1.74533" />
   </actuator>
 </mujoco>

@@ -2,7 +2,14 @@
 <mujoco model="so101_dual_arm">
   <!-- Bimanual SO-101 on a 100 x 60 x 74 cm table with a prism and an open storage tray. -->
   <compiler angle="radian" />
-  <option timestep="0.00208333333333" integrator="implicitfast" iterations="50" ls_iterations="20" cone="elliptic" />
+  <option timestep="0.00208333333333" integrator="implicitfast" iterations="50" ls_iterations="20" cone="elliptic" impratio="10" />
+  <!-- Pins the free camera framing, the clip planes and the shadow coverage, which all scale with the extent. -->
+  <statistic center="0.25 0 0.85" extent="0.8" />
+  <visual>
+    <headlight ambient="0 0 0" diffuse="0.1 0.1 0.1" specular="0 0 0" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <global azimuth="140" elevation="-25" />
+  </visual>
   <default>
     <default class="table">
       <geom type="cylinder" material="frame" friction="0.55 0.005 0.0001" condim="4" solref="0.006 1" solimp="0.95 0.99 0.001" />
@@ -23,16 +30,16 @@
   </asset>
   <worldbody>
     <geom name="ground" type="plane" size="0 0 0.1" material="ground" />
-    <light pos="0.45 -0.38 2.3" dir="-0.1418 0.2343 -0.9618" directional="true" diffuse="3 3 3" ambient="0.8 0.8 0.8" />
-    <light pos="-0.45 0.65 2.12" dir="0.35 -0.3992 -0.8474" directional="true" diffuse="1.4 1.4 1.4" />
-    <light pos="0.12 1.18 1.82" dir="0.0284 -0.8371 -0.5463" directional="true" diffuse="0.8 0.8 0.8" />
+    <!-- Light adds up and clips at white, so diffuse plus ambient stays near 1 on surfaces facing up. Only the key casts shadows; the ambient sits on the fill because a light's shadow also blocks its ambient. -->
+    <light name="key" pos="0.45 -0.38 2.3" dir="-0.1418 0.2343 -0.9618" directional="true" diffuse="0.45 0.45 0.45" specular="0.2 0.2 0.2" />
+    <light name="fill" pos="-0.45 0.65 2.12" dir="0.35 -0.3992 -0.8474" directional="true" diffuse="0.15 0.15 0.15" ambient="0.35 0.35 0.35" specular="0 0 0" castshadow="false" />
     <camera name="overview" pos="1.7 -1.85 1.7" xyaxes="0.7604 0.6494 0 -0.2635 0.3085 0.914" fovy="39" />
 
     <geom name="tabletop" class="table" type="box" pos="0.25 0 0.723" size="0.3 0.5 0.017" material="laminate" />
-    <geom class="table" pos="0.015 -0.435 0.359" size="0.02 0.339" />
-    <geom class="table" pos="0.015 0.435 0.359" size="0.02 0.339" />
-    <geom class="table" pos="0.485 -0.435 0.359" size="0.02 0.339" />
-    <geom class="table" pos="0.485 0.435 0.359" size="0.02 0.339" />
+    <geom class="table" pos="0.015 -0.435 0.363" size="0.02 0.343" />
+    <geom class="table" pos="0.015 0.435 0.363" size="0.02 0.343" />
+    <geom class="table" pos="0.485 -0.435 0.363" size="0.02 0.343" />
+    <geom class="table" pos="0.485 0.435 0.363" size="0.02 0.343" />
     <geom class="table" pos="0.015 -0.435 0.01" size="0.02 0.01" material="foot" />
     <geom class="table" pos="0.015 0.435 0.01" size="0.02 0.01" material="foot" />
     <geom class="table" pos="0.485 -0.435 0.01" size="0.02 0.01" material="foot" />
@@ -44,14 +51,14 @@
     </frame>
 
     <!-- 20 x 20 x 70 mm, 11 g. -->
-    <body name="prism" pos="0.27 -0.1 0.741" childclass="object">
+    <body name="prism" pos="0.27 -0.1 0.74" childclass="object">
       <freejoint />
       <inertial mass="0.011" pos="0 0 0.035" diaginertia="4.858e-06 4.858e-06 7.333e-07" />
       <geom pos="0 0 0.035" size="0.01 0.01 0.035" />
     </body>
 
     <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. -->
-    <body name="storage" pos="0.27 0.1 0.741" childclass="object">
+    <body name="storage" pos="0.27 0.1 0.74" childclass="object">
       <freejoint />
       <inertial mass="0.05" pos="0 0 0.009494" diaginertia="6.354e-05 6.354e-05 0.0001186" />
       <geom pos="0 0 0.002" size="0.05 0.05 0.002" />
@@ -64,7 +71,7 @@
   <keyframe>
     <!-- Folded rest pose. qpos: left arm (6), right arm (6), prism (7), storage (7). -->
     <key name="rest"
-      qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.27 -0.1 0.741 1 0 0 0  0.27 0.1 0.741 1 0 0 0"
+      qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.27 -0.1 0.74 1 0 0 0  0.27 0.1 0.74 1 0 0 0"
       ctrl="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745" />
   </keyframe>
 </mujoco>
