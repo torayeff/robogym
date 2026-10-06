@@ -36,7 +36,14 @@ def test_observation_matches_spec(client):
     jsonschema.validate(observe(client), spec["observation"])
 
 
+def test_the_simulation_waits_for_start(client):
+    move_left_shoulder(client, by=1.0)
+    time.sleep(0.2)
+    assert observe(client)["time"] == 0.0
+
+
 def test_simulation_time_keeps_pace_with_the_wall_clock(client):
+    assert client.post("/start").status_code == 204
     start = time.monotonic()
     first = observe(client)["time"]
     time.sleep(0.5)
@@ -45,6 +52,7 @@ def test_simulation_time_keeps_pace_with_the_wall_clock(client):
 
 
 def test_an_action_moves_the_arm_while_the_simulation_runs(client):
+    client.post("/start")
     goal = move_left_shoulder(client, by=1.0)
     time.sleep(1.5)
     joints = observe(client)["joints"]
@@ -57,32 +65,29 @@ def test_a_bad_action_is_rejected_with_the_reason(client):
     assert "Unknown joint 'left_elbow'" in response.json()["detail"]
 
 
-def test_pause_freezes_the_simulation_and_resume_goes_on_from_there(client):
+def test_pause_freezes_the_simulation_and_start_goes_on_from_there(client):
+    client.post("/start")
+    time.sleep(0.2)
     assert client.post("/pause").status_code == 204
     frozen = observe(client)
     goal = move_left_shoulder(client, by=1.0)
     time.sleep(0.3)
     still = observe(client)
     assert (still["time"], still["joints"]) == (frozen["time"], frozen["joints"])
-    assert client.post("/resume").status_code == 204
+    client.post("/start")
     assert frozen["time"] <= observe(client)["time"] < frozen["time"] + 0.1
     time.sleep(1.5)
     joints = observe(client)["joints"]
     assert joints["left_shoulder_lift"] == pytest.approx(goal, abs=0.01)
 
 
-def test_reset_puts_everything_back_and_restarts_the_clock(client):
+def test_reset_puts_everything_back_and_waits_for_start(client):
     start = observe(client)
+    client.post("/start")
     move_left_shoulder(client, by=1.0)
     time.sleep(1.0)
     assert client.post("/reset").status_code == 204
-    observation = observe(client)
-    assert observation["time"] < 0.1
-    assert observation["joints"] == pytest.approx(start["joints"], abs=1e-3)
-
-
-def test_reset_keeps_a_paused_simulation_paused(client):
-    client.post("/pause")
-    client.post("/reset")
     time.sleep(0.2)
-    assert observe(client)["time"] == 0.0
+    observation = observe(client)
+    assert observation["time"] == 0.0
+    assert observation["joints"] == pytest.approx(start["joints"], abs=1e-3)
