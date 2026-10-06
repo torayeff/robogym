@@ -1,7 +1,7 @@
 """The SO-101 dual-arm scene as a robogym environment.
 
 Actions set goal angles for the 12 servos; observations hold the joint angles and the
-images of the three robot cameras.
+images of the three robot cameras. Each reset puts the prism and the tray in new places.
 
     with So101DualArm() as env:
         env.act({"joints": {"left_shoulder_lift": -0.75}})
@@ -14,6 +14,7 @@ from pathlib import Path
 
 import cv2
 import mujoco
+import numpy as np
 
 from robogym.env import Env
 
@@ -23,12 +24,15 @@ SCENE = Path(__file__).parent / "scene.xml"
 
 DESCRIPTION = (
     "Two SO-101 robot arms side by side at the back edge of a table, facing forward. "
-    "A red prism (2 x 2 x 7 cm) stands in front of the right arm and a red open tray "
-    "(10 x 10 x 3 cm) in front of the left arm. Each arm has six position-controlled "
-    "servos: an action sets their goal angles, and the simulated servos move the "
-    "joints there. After a reset both arms are folded, grippers just above the "
-    "table; turning a folded arm more than about 0.8 rad can swing it into the "
-    "camera mast between the arms."
+    "A red prism (2 x 2 x 7 cm) and a red open tray (10 x 10 x 3 cm) are out to the "
+    "sides, one beside each arm: the other arm can't pick up the prism or get its "
+    "gripper over the tray. Every reset picks which is on which side, where each is "
+    "and which way it faces, and whether the prism stands on end or lies on a side; "
+    "the tray is always upright. Each arm has "
+    "six position-controlled servos: an action sets their goal angles, and the "
+    "simulated servos move the joints there. After a reset both arms are folded, "
+    "grippers just above the table; turning a folded arm more than about 0.8 rad can "
+    "swing it into the camera mast between the arms."
 )
 
 # What each servo does, the same on both arms. The signs are measured from the model.
@@ -61,14 +65,28 @@ CAMERAS = {
 
 JPEG_QUALITY = 90
 
+# Where reset() puts the objects (README.md, Layouts). Each one's centre is within NEAR
+# of its own arm's shoulder-pan axis, so that arm can pick it up or drop into it; at
+# least FAR from the other arm's, beyond where that arm's grasp point gets; and at
+# x >= FRONT, which keeps all of it in the top camera's view.
+PAN_AXIS_X, PAN_AXIS_Y = 0.0103, 0.116  # the left arm's is at +y, the right arm's at -y
+NEAR = {"prism": 0.33, "storage": 0.36}
+FAR = {"prism": 0.47, "storage": 0.52}
+FRONT = {"prism": 0.20, "storage": 0.26}
+TABLE_TOP = 0.74
+
 
 class So101DualArm(Env):
-    """scene.xml from the folded rest pose, with cameras rendered through their lens."""
+    """scene.xml from the folded rest pose, with cameras rendered through their lens.
 
-    def __init__(self):
+    `seed` seeds where each reset puts the objects.
+    """
+
+    def __init__(self, seed: int | None = None):
         self.model = mujoco.MjModel.from_xml_path(str(SCENE))
         self.data = mujoco.MjData(self.model)
         self._renderer = LensRenderer(self.model)
+        self._rng = np.random.default_rng(seed)
         self.reset()
 
     def spec(self) -> dict:
@@ -120,9 +138,33 @@ class So101DualArm(Env):
 
     def reset(self) -> None:
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.model.key("rest").id)
+        sides = self._rng.permutation([1, -1])  # 1 is beside the left arm
+        for name, side in zip(("prism", "storage"), sides):
+            self.data.joint(name).qpos = self._resting_pose(name, side)
 
     def close(self) -> None:
         self._renderer.close()
+
+    def _resting_pose(self, name: str, side: int) -> list[float]:
+        """A free-joint qpos for the object, beside the arm at `side`."""
+        near = np.array([PAN_AXIS_X, side * PAN_AXIS_Y])
+        far = np.array([PAN_AXIS_X, -side * PAN_AXIS_Y])
+        while True:  # try centres on the arm's half of the table until one fits
+            x, y = self._rng.uniform([FRONT[name], 0], [0.55, 0.5]) * [1, side]
+            if (
+                np.hypot(x - near[0], y - near[1]) <= NEAR[name]
+                and np.hypot(x - far[0], y - far[1]) >= FAR[name]
+            ):
+                break
+        yaw = self._rng.uniform(-np.pi, np.pi)
+        c, s = np.cos(yaw / 2), np.sin(yaw / 2)
+        if name == "prism" and self._rng.random() < 0.5:
+            # Lying on a side, turned 90° about its own x axis: its origin, at one end,
+            # is 3.5 cm along the table from its centre, which is 1 cm above the table.
+            x, y = x - 0.035 * np.sin(yaw), y + 0.035 * np.cos(yaw)
+            r = np.sqrt(0.5)
+            return [x, y, TABLE_TOP + 0.01, r * c, r * c, r * s, r * s]
+        return [x, y, TABLE_TOP, c, 0, 0, s]
 
     def _observation_schema(self) -> dict:
         lens = self._renderer.lens

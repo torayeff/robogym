@@ -1,19 +1,29 @@
 # SO-101 dual arm (MuJoCo)
 
-Two SO-101 arms with wrist cameras and an overhead camera, on a table with a prism and a storage tray.
+Two SO-101 arms with wrist cameras and an overhead camera, on a table with a prism and a storage tray. Each reset of the environment puts one object beside each arm, where the other arm can't pick it up ([Layouts](#layouts)).
 
 ```bash
 uv run envs/so101_dual_arm/view.py
 ```
 
-Opens the MuJoCo viewer in the folded rest pose. Drive the 12 position actuators (`{left,right}_{shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper}`, radians) with the Control sliders. Cameras: `overview`, `top_camera`, `left_wrist_camera`, `right_wrist_camera`. The prism and tray have free joints named `prism` and `storage`.
+Opens the environment in the MuJoCo viewer as a reset leaves it: arms folded, the prism and tray in random places. Reload (Ctrl+L) resets it. Drive the 12 position actuators (`{left,right}_{shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper}`, radians) with the Control sliders. Cameras: `overview`, `top_camera`, `left_wrist_camera`, `right_wrist_camera`. The prism and tray have free joints named `prism` and `storage`.
 
-- `env.py`: the scene as a robogym environment: goal angles for the 12 servos in; joint angles and the three robot cameras' images out.
+- `env.py`: the scene as a robogym environment: goal angles for the 12 servos in; joint angles and the three robot cameras' images out. `So101DualArm(seed=...)` repeats the same layouts.
 - `camera.py`: renders the robot cameras through their lens.
 - `scene.xml`: floor, lights, table, prism, tray, rest keyframe.
 - `robot/so101_bimanual.xml`: mounting rig and overhead camera; attaches `so101.xml` twice, prefixed `left_` and `right_`.
 - `robot/so101.xml`: one arm with its wrist camera.
 - `robot/assets/`: the 21 STL meshes.
+
+## Layouts
+
+Every reset puts the prism beside one arm and the tray beside the other, which way round at random, each turned to a random angle; the prism stands on end or lies on a side, equally often. Each object's centre is drawn uniformly from where it is:
+
+- within 0.33 m (prism) or 0.36 m (tray) of its own arm's shoulder-pan axis, so that arm can pick the prism up with its gripper within 25° of vertical, and get over the tray within 40°;
+- at least 0.47 m (prism) or 0.52 m (tray) from the other arm's. That arm's grasp point (the `gripperframe` site) gets no more than 0.436 m from its pan axis at prism heights and 0.441 m above a tray, so it can't take hold of the prism, not even near one end of a lying one, or get over the inside of the tray. Its fingertips may just touch an object at full stretch;
+- at x ≥ 0.20 m (prism) or 0.26 m (tray), which keeps all of it in the top camera's view.
+
+That leaves a band along each side of the table: the prism's centre at x = 0.20–0.32 m and |y| = 0.24–0.39 m, 0.27–0.33 m from its arm's pan axis; the tray's at x = 0.26–0.32 m and |y| = 0.30–0.38 m, 0.34–0.36 m from it. The reaches come from searching the model's joint angles, counting poses that sink no more than 1 mm into the table, the rig or the arm itself. A search over the other arm's joint angles got its grasp point no closer than 19 mm to the graspable part of a lying prism pointing at it, or 14 mm to over a tray turned corner-on.
 
 ## Cameras
 
@@ -51,4 +61,4 @@ The arm is The Robot Studio's open-source [SO-101](https://github.com/TheRobotSt
 
 Menagerie's `robotstudio_so101` and SO-ARM100 are both licensed under Apache-2.0; [robot/LICENSE](robot/LICENSE) is a copy of that license.
 
-The rig (`robot/so101_bimanual.xml`: part placement, collision boxes, overhead camera) and `scene.xml` are authored for this project. The table approximates an IKEA LINNMON/ADILS (100 × 60 cm top, 74 cm high). The prism and tray are box primitives with uniform-density inertias. They sit at x = 0.23 m, about as close to the arms as helps: `wrist_flex` (±95°) keeps a straight-down gripper's fingertips below about 0.83 m, 9 cm above the table, wherever the target is, and from x = 0.23 m that still clears the prism's 0.81 m top.
+The rig (`robot/so101_bimanual.xml`: part placement, collision boxes, overhead camera) and `scene.xml` are authored for this project. The table approximates an IKEA LINNMON/ADILS (100 × 60 cm top, 74 cm high). The prism and tray are box primitives with uniform-density inertias; `scene.xml` and its keyframe hold one of the layouts a reset can draw.

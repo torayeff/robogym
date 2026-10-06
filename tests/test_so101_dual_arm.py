@@ -9,12 +9,21 @@ import mujoco
 import numpy as np
 import pytest
 
-from envs.so101_dual_arm.env import So101DualArm
+from envs.so101_dual_arm.env import (
+    FAR,
+    FRONT,
+    NEAR,
+    PAN_AXIS_X,
+    PAN_AXIS_Y,
+    So101DualArm,
+)
+
+SEED = 0
 
 
 @pytest.fixture
 def env():
-    with So101DualArm() as env:
+    with So101DualArm(seed=SEED) as env:
         yield env
 
 
@@ -87,17 +96,57 @@ def test_step_advances_in_whole_physics_steps(env):
     assert env.time == pytest.approx(1.0)
 
 
-def test_reset_restores_the_whole_simulation(env):
-    start = state(env)
+def test_reset_folds_the_arms_and_draws_new_object_poses(env):
+    start = {name: env.data.joint(name).qpos.copy() for name in ("prism", "storage")}
     env.act({"joints": {"left_shoulder_lift": 0.0, "right_gripper": 1.7}})
     env.data.joint("prism").qpos[2] += 0.05  # lift the prism 5 cm so it falls
     env.step(2.0)
     env.reset()
-    assert np.array_equal(state(env), start)
+    rest = env.model.key("rest")
+    assert env.time == 0.0
+    assert np.array_equal(env.data.qpos[:12], rest.qpos[:12])
+    assert np.array_equal(env.data.ctrl, rest.ctrl)
+    assert not env.data.qvel.any()
+    for name, pose in start.items():
+        assert not np.array_equal(env.data.joint(name).qpos, pose)
+
+
+def test_a_seed_gives_the_same_layouts(env):
+    with So101DualArm(seed=SEED) as same:
+        assert np.array_equal(state(same), state(env))
+        env.reset()
+        same.reset()
+        assert np.array_equal(state(same), state(env))
+
+
+def centres(env: So101DualArm) -> dict:
+    """Where the middles of the prism and of the tray's floor are."""
+    mujoco.mj_forward(env.model, env.data)
+    return {
+        "prism": env.data.geom_xpos[env.model.body("prism").geomadr[0]].copy(),
+        "storage": env.data.body("storage").xpos.copy(),
+    }
+
+
+def test_each_object_starts_at_rest_where_only_the_arm_beside_it_reaches(env):
+    heights = set()
+    for _ in range(20):
+        env.reset()
+        start = centres(env)
+        assert np.sign(start["prism"][1]) == -np.sign(start["storage"][1])
+        for name, (x, y, _) in start.items():
+            near = np.hypot(x - PAN_AXIS_X, y - np.sign(y) * PAN_AXIS_Y)
+            far = np.hypot(x - PAN_AXIS_X, y + np.sign(y) * PAN_AXIS_Y)
+            assert near <= NEAR[name] and far >= FAR[name] and x >= FRONT[name]
+        heights.add(round(start["prism"][2], 3))
+        env.step(0.5)
+        for name, centre in centres(env).items():
+            assert centre == pytest.approx(start[name], abs=1e-3)
+    assert heights == {0.775, 0.75}  # the prism stood and lay
 
 
 def test_observing_does_not_change_the_simulation(env):
-    with So101DualArm() as unobserved:
+    with So101DualArm(seed=SEED) as unobserved:
         for sim in (env, unobserved):
             sim.act({"joints": {"left_shoulder_lift": 0.0}})
         for _ in range(10):

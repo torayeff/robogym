@@ -50,15 +50,15 @@
       <attach model="robot" prefix="" />
     </frame>
 
-    <!-- 20 x 20 x 70 mm, 11 g. Close enough to the arms that a straight-down gripper clears its top; wrist_flex caps how high it can reach. -->
-    <body name="prism" pos="0.23 -0.1 0.74" childclass="object">
+    <!-- 20 x 20 x 70 mm, 11 g. Beside the right arm, out of the left arm's reach; every reset of the environment places it and the tray anew. -->
+    <body name="prism" pos="0.25 -0.315 0.74" childclass="object">
       <freejoint name="prism" />
       <inertial mass="0.011" pos="0 0 0.035" diaginertia="4.858e-06 4.858e-06 7.333e-07" />
       <geom pos="0 0 0.035" size="0.01 0.01 0.035" />
     </body>
 
-    <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. -->
-    <body name="storage" pos="0.23 0.1 0.74" childclass="object">
+    <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. Beside the left arm, out of the right arm's reach. -->
+    <body name="storage" pos="0.29 0.333 0.74" childclass="object">
       <freejoint name="storage" />
       <inertial mass="0.05" pos="0 0 0.009494" diaginertia="6.354e-05 6.354e-05 0.0001186" />
       <geom pos="0 0 0.002" size="0.05 0.05 0.002" />
@@ -71,7 +71,7 @@
   <keyframe>
     <!-- Folded rest pose. qpos: left arm (6), right arm (6), prism (7), storage (7). -->
     <key name="rest"
-      qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.23 -0.1 0.74 1 0 0 0  0.23 0.1 0.74 1 0 0 0"
+      qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.25 -0.315 0.74 1 0 0 0  0.29 0.333 0.74 1 0 0 0"
       ctrl="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745" />
   </keyframe>
 </mujoco>
