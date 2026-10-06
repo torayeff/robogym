@@ -8,6 +8,7 @@ uv run envs/so101_dual_arm/view.py
 
 Opens the MuJoCo viewer in the folded rest pose. Drive the 12 position actuators (`{left,right}_{shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper}`, radians) with the Control sliders. Cameras: `overview`, `top_camera`, `left_wrist_camera`, `right_wrist_camera`. The prism and tray have free joints named `prism` and `storage`.
 
+- `env.py`: the scene as a robogym environment: goal angles for the 12 servos in; joint angles and the three robot cameras' images out.
 - `camera.py`: renders the robot cameras through their lens.
 - `scene.xml`: floor, lights, table, prism, tray, rest keyframe.
 - `robot/so101_bimanual.xml`: mounting rig and overhead camera; attaches `so101.xml` twice, prefixed `left_` and `right_`.
