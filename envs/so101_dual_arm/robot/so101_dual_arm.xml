@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<mujoco model="so101_bimanual">
-  <!-- Bimanual mounting rig with overhead camera. The shared SO-101 arm definition includes our wrist camera assembly. -->
+<mujoco model="so101_dual_arm">
+  <!-- Dual-arm mounting rig with overhead camera. The shared SO-101 arm definition includes our wrist camera assembly. -->
   <compiler angle="radian" meshdir="assets" />
   <default>
     <default class="robot">

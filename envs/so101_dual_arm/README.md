@@ -11,7 +11,7 @@ Opens the environment in the MuJoCo viewer as a reset leaves it: arms folded, th
 - `env.py`: the scene as a robogym environment: goal angles for the 12 servos in; joint angles and the three robot cameras' images out. `So101DualArm(seed=...)` repeats the same layouts.
 - `camera.py`: renders the robot cameras through their lens.
 - `scene.xml`: floor, lights, table, prism, tray, rest keyframe.
-- `robot/so101_bimanual.xml`: mounting rig and overhead camera; attaches `so101.xml` twice, prefixed `left_` and `right_`.
+- `robot/so101_dual_arm.xml`: mounting rig and overhead camera; attaches `so101.xml` twice, prefixed `left_` and `right_`.
 - `robot/so101.xml`: one arm with its wrist camera.
 - `robot/assets/`: the 21 STL meshes.
 
@@ -61,4 +61,4 @@ The arm is The Robot Studio's open-source [SO-101](https://github.com/TheRobotSt
 
 Menagerie's `robotstudio_so101` and SO-ARM100 are both licensed under Apache-2.0; [robot/LICENSE](robot/LICENSE) is a copy of that license.
 
-The rig (`robot/so101_bimanual.xml`: part placement, collision boxes, overhead camera) and `scene.xml` are authored for this project. The table approximates an IKEA LINNMON/ADILS (100 × 60 cm top, 74 cm high). The prism and tray are box primitives with uniform-density inertias; `scene.xml` and its keyframe hold one of the layouts a reset can draw.
+The rig (`robot/so101_dual_arm.xml`: part placement, collision boxes, overhead camera) and `scene.xml` are authored for this project. The table approximates an IKEA LINNMON/ADILS (100 × 60 cm top, 74 cm high). The prism and tray are box primitives with uniform-density inertias; `scene.xml` and its keyframe hold one of the layouts a reset can draw.

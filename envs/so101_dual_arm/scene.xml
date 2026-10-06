@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mujoco model="so101_dual_arm">
-  <!-- Bimanual SO-101 on a 100 x 60 x 74 cm table with a prism and an open storage tray. -->
+  <!-- Dual-arm SO-101 on a 100 x 60 x 74 cm table with a prism and an open storage tray. -->
   <compiler angle="radian" />
   <option timestep="0.00208333333333" integrator="implicitfast" iterations="50" ls_iterations="20" cone="elliptic" impratio="10" />
   <!-- Pins the free camera framing, the clip planes and the shadow coverage, which all scale with the extent. -->
@@ -19,7 +19,7 @@
     </default>
   </default>
   <asset>
-    <model name="robot" file="robot/so101_bimanual.xml" />
+    <model name="robot" file="robot/so101_dual_arm.xml" />
     <texture name="skybox" type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072" />
     <texture name="ground" type="2d" builtin="checker" mark="edge" rgb1="0.18 0.28 0.38" rgb2="0.12 0.22 0.32" markrgb="0.6 0.6 0.6" width="300" height="300" />
     <material name="ground" texture="ground" texuniform="true" texrepeat="5 5" />
