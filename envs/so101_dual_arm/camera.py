@@ -47,7 +47,9 @@ class LensRenderer:
         u, v = np.meshgrid(np.arange(lens.width), np.arange(lens.height))
         pixels = np.stack([u, v], -1).reshape(-1, 1, 2).astype(np.float64)
         K = np.array([[lens.fx, 0, lens.cx], [0, lens.fy, lens.cy], [0, 0, 1]])
-        rays = cv2.fisheye.undistortPoints(pixels, K, np.array(lens.k)).reshape(lens.height, lens.width, 2)
+        rays = cv2.fisheye.undistortPoints(pixels, K, np.array(lens.k)).reshape(
+            lens.height, lens.width, 2
+        )
         # The pinhole image resolves 1.5 times as finely as the lens at the image centre, where the lens resolves
         # most finely, and is just big enough to hold every ray the lens sees.
         f = 1.5 * max(lens.fx, lens.fy)
@@ -58,7 +60,9 @@ class LensRenderer:
         self._renderer = mujoco.Renderer(model, 2 * half_height, 2 * half_width)
         self._tan_half_fovy = half_height / f
         maps = (f * rays + [half_width - 0.5, half_height - 0.5]).astype(np.float32)
-        self._map1, self._map2 = cv2.convertMaps(maps[..., 0], maps[..., 1], cv2.CV_16SC2)
+        self._map1, self._map2 = cv2.convertMaps(
+            maps[..., 0], maps[..., 1], cv2.CV_16SC2
+        )
 
     def render(self, data: mujoco.MjData, camera: int | str) -> np.ndarray:
         self._renderer.update_scene(data, camera=camera)
@@ -66,7 +70,9 @@ class LensRenderer:
         for eye in self._renderer.scene.camera:
             eye.frustum_bottom = -eye.frustum_near * self._tan_half_fovy
             eye.frustum_top = eye.frustum_near * self._tan_half_fovy
-        return cv2.remap(self._renderer.render(), self._map1, self._map2, cv2.INTER_LINEAR)
+        return cv2.remap(
+            self._renderer.render(), self._map1, self._map2, cv2.INTER_LINEAR
+        )
 
     def close(self):
         self._renderer.close()
