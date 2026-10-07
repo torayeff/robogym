@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mujoco model="so101_dual_arm">
-  <!-- Dual-arm mounting rig with overhead camera. The shared SO-101 arm definition includes our wrist camera assembly. -->
+  <!-- Dual-arm mounting rig with an overhead camera; attaches so101.xml for each arm. -->
   <compiler angle="radian" meshdir="assets" />
   <default>
     <default class="robot">
@@ -15,13 +15,12 @@
   </default>
   <asset>
     <material name="3d_printed" rgba="0.92 0.92 0.92 1" roughness="0.62" />
-    <material name="u20cam" rgba="0.06 0.06 0.06 1" roughness="0.62" />
     <mesh file="arm_base.stl" scale="0.001 0.001 0.001" />
     <mesh file="cam_mount_bottom.stl" scale="0.001 0.001 0.001" />
     <mesh file="cam_mount_middle.stl" scale="0.001 0.001 0.001" />
     <mesh file="cam_mount_top.stl" scale="0.001 0.001 0.001" />
-    <mesh file="u20cam_1080p.stl" />
     <model name="so101" file="so101.xml" />
+    <model name="u20cam" file="u20cam.xml" />
   </asset>
   <worldbody>
     <body name="rig_base" childclass="robot">
@@ -47,15 +46,9 @@
         <geom name="mast_upper_post" class="robot_collision" pos="0 0.27216 -0.0000005" size="0.0127 0.08216 0.018312" />
         <geom name="mast_camera_plate" class="robot_collision" pos="0.027 0.36273 0" size="0.0195 0.0015 0.0175" euler="0 0 0.436332313" />
       </frame>
-      <body name="top_camera" pos="0.0294 0 0.5519" quat="0.842453655654 0 0.53876881691 0">
-        <inertial pos="0.0018 0 0" mass="0.010" fullinertia="7.551e-07 8.188e-07 8.261e-07 0 0 0" />
-        <!-- At the lens front: the lens reaches 15.5 mm, so a camera at the body origin renders its own housing. fovy is the lens's vertical field of view; ../camera.py adds its distortion. -->
-        <camera name="top_camera" pos="0.016 0 0" xyaxes="0 -1 0 0 0 1" fovy="59.625" resolution="640 480" />
-        <geom class="robot_visual" mesh="u20cam_1080p" material="u20cam" />
-        <geom name="top_camera_pcb" class="robot_collision" pos="-0.0048 0 0" size="0.0008 0.016 0.016" />
-        <geom name="top_camera_holder" class="robot_collision" pos="-0.002 0 0" size="0.002 0.007 0.007" />
-        <geom name="top_camera_lens" class="robot_collision" type="cylinder" pos="0.00775 0 0" quat="0.7071067811865476 0 0.7071067811865476 0" size="0.0075 0.00775" />
-      </body>
+      <frame pos="0.0294 0 0.5519" quat="0.842453655654 0 0.53876881691 0">
+        <attach model="u20cam" body="camera" prefix="top_" />
+      </frame>
       <frame pos="0.0028 0.11603 0.0074">
         <attach model="so101" body="base" prefix="left_" />
       </frame>

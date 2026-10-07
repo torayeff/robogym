@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mujoco model="so101_dual_arm">
-  <!-- Dual-arm SO-101 on a 100 x 60 x 74 cm table with a prism and an open storage tray. -->
+  <!-- Dual-arm SO-101 on a 100 x 60 x 74 cm table (an IKEA LINNMON/ADILS) with a prism and an open storage tray. -->
   <compiler angle="radian" />
   <option timestep="0.00208333333333" integrator="implicitfast" iterations="50" ls_iterations="20" cone="elliptic" impratio="10" />
-  <!-- Pins the free camera framing, the clip planes and the shadow coverage, which all scale with the extent. -->
+  <!-- Frames the free camera, which the robogym viewer shows, and sets the clip planes, which scale with the extent. -->
   <statistic center="0.25 0 0.85" extent="0.8" />
   <visual>
     <headlight ambient="0 0 0" diffuse="0.1 0.1 0.1" specular="0 0 0" />
@@ -30,7 +30,7 @@
   </asset>
   <worldbody>
     <geom name="ground" type="plane" size="0 0 0.1" material="ground" />
-    <!-- Light adds up and clips at white, so diffuse plus ambient stays near 1 on surfaces facing up. Shadows and floor reflection are off: each adds a render pass over the arm meshes for every camera. The ambient sits on the fill because a light's shadow also blocks its ambient. -->
+    <!-- Light adds up and clips at white, so diffuse plus ambient stays near 1 on surfaces facing up. Shadows and floor reflection are off: each adds a render pass over the arm meshes for every camera. -->
     <light name="key" pos="0.45 -0.38 2.3" dir="-0.1418 0.2343 -0.9618" directional="true" diffuse="0.45 0.45 0.45" specular="0.2 0.2 0.2" castshadow="false" />
     <light name="fill" pos="-0.45 0.65 2.12" dir="0.35 -0.3992 -0.8474" directional="true" diffuse="0.15 0.15 0.15" ambient="0.35 0.35 0.35" specular="0 0 0" castshadow="false" />
     <camera name="overview" pos="1.7 -1.85 1.7" xyaxes="0.7604 0.6494 0 -0.2635 0.3085 0.914" fovy="39" />
@@ -50,14 +50,14 @@
       <attach model="robot" prefix="" />
     </frame>
 
-    <!-- 20 x 20 x 70 mm, 11 g. Beside the right arm, out of the left arm's reach; every reset of the environment places it and the tray anew. -->
+    <!-- 20 x 20 x 70 mm, 11 g. -->
     <body name="prism" pos="0.25 -0.315 0.74" childclass="object">
       <freejoint name="prism" />
       <inertial mass="0.011" pos="0 0 0.035" diaginertia="4.858e-06 4.858e-06 7.333e-07" />
-      <geom pos="0 0 0.035" size="0.01 0.01 0.035" />
+      <geom name="prism" pos="0 0 0.035" size="0.01 0.01 0.035" />
     </body>
 
-    <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. Beside the left arm, out of the right arm's reach. -->
+    <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. -->
     <body name="storage" pos="0.29 0.333 0.74" childclass="object">
       <freejoint name="storage" />
       <inertial mass="0.05" pos="0 0 0.009494" diaginertia="6.354e-05 6.354e-05 0.0001186" />
@@ -69,7 +69,7 @@
     </body>
   </worldbody>
   <keyframe>
-    <!-- Folded rest pose. qpos: left arm (6), right arm (6), prism (7), storage (7). -->
+    <!-- Folded rest pose, with the objects in one of the layouts a reset draws. qpos: left arm (6), right arm (6), prism (7), storage (7). -->
     <key name="rest"
       qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.25 -0.315 0.74 1 0 0 0  0.29 0.333 0.74 1 0 0 0"
       ctrl="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745" />

@@ -16,7 +16,7 @@ import cv2
 import mujoco
 import numpy as np
 
-from robogym.env import Env
+from robogym.env import Env, ViewRenderer
 
 from .camera import LensRenderer
 
@@ -28,11 +28,11 @@ DESCRIPTION = (
     "sides, one beside each arm: the other arm can't pick up the prism or get its "
     "gripper over the tray. Every reset picks which is on which side, where each is "
     "and which way it faces, and whether the prism stands on end or lies on a side; "
-    "the tray is always upright. Each arm has "
-    "six position-controlled servos: an action sets their goal angles, and the "
-    "simulated servos move the joints there. After a reset both arms are folded, "
-    "grippers just above the table; turning a folded arm more than about 0.8 rad can "
-    "swing it into the camera mast between the arms."
+    "the tray is always upright. Each arm has six position-controlled servos: an "
+    "action sets their goal angles, and the simulated servos move the joints there. "
+    "After a reset both arms are folded, grippers just above the table; turning a "
+    "folded arm more than about 0.8 rad can swing it into the camera mast between "
+    "the arms."
 )
 
 # What each servo does, the same on both arms. The signs are measured from the model.
@@ -65,21 +65,24 @@ CAMERAS = {
 
 JPEG_QUALITY = 90
 
-# Where reset() puts the objects (README.md, Layouts). Each one's centre is within NEAR
-# of its own arm's shoulder-pan axis, so that arm can pick it up or drop into it; at
-# least FAR from the other arm's, beyond where that arm's grasp point gets; and at
-# x >= FRONT, which keeps all of it in the top camera's view.
-PAN_AXIS_X, PAN_AXIS_Y = 0.0103, 0.116  # the left arm's is at +y, the right arm's at -y
+# Where reset() puts the objects. Each one's centre is
+# - within NEAR of its own arm's shoulder-pan axis, so that arm can pick the prism up
+#   with its gripper within 25° of vertical, and get over the tray within 40°;
+# - at least FAR from the other arm's, beyond its grasp point's reach of 0.436 m at
+#   prism heights and 0.441 m over a tray;
+# - at x >= FRONT, which keeps all of it in the top camera's view.
 NEAR = {"prism": 0.33, "storage": 0.36}
 FAR = {"prism": 0.47, "storage": 0.52}
 FRONT = {"prism": 0.20, "storage": 0.26}
 TABLE_TOP = 0.74
+# A quarter turn about the x axis, which lays the prism on a side.
+ON_SIDE = np.array([np.sqrt(0.5), np.sqrt(0.5), 0, 0])
 
 
 class So101DualArm(Env):
     """scene.xml from the folded rest pose, with cameras rendered through their lens.
 
-    `seed` seeds where each reset puts the objects.
+    `seed` makes the layouts that resets draw repeatable.
     """
 
     def __init__(self, seed: int | None = None):
@@ -87,6 +90,12 @@ class So101DualArm(Env):
         self.data = mujoco.MjData(self.model)
         self._renderer = LensRenderer(self.model)
         self._rng = np.random.default_rng(seed)
+        mujoco.mj_kinematics(self.model, self.data)
+        # The xy of each arm's vertical shoulder-pan axis, by side: 1 is the left arm.
+        self._pan_axes = {
+            side: self.data.joint(f"{arm}_shoulder_pan").xanchor[:2].copy()
+            for side, arm in ((1, "left"), (-1, "right"))
+        }
         self.reset()
 
     def spec(self) -> dict:
@@ -142,29 +151,39 @@ class So101DualArm(Env):
         for name, side in zip(("prism", "storage"), sides):
             self.data.joint(name).qpos = self._resting_pose(name, side)
 
+    def positions(self) -> np.ndarray:
+        return self.data.qpos.copy()
+
+    def view_renderer(self, width: int, height: int) -> ViewRenderer:
+        return DefaultViewRenderer(self.model, width, height)
+
     def close(self) -> None:
         self._renderer.close()
 
     def _resting_pose(self, name: str, side: int) -> list[float]:
         """A free-joint qpos for the object, beside the arm at `side`."""
-        near = np.array([PAN_AXIS_X, side * PAN_AXIS_Y])
-        far = np.array([PAN_AXIS_X, -side * PAN_AXIS_Y])
-        while True:  # try centres on the arm's half of the table until one fits
-            x, y = self._rng.uniform([FRONT[name], 0], [0.55, 0.5]) * [1, side]
+        near, far = self._pan_axes[side], self._pan_axes[-side]
+        while True:  # sample NEAR's bounding box, cut at FRONT, until a centre fits
+            centre = self._rng.uniform(
+                [FRONT[name], near[1] - NEAR[name]], near + NEAR[name]
+            )
             if (
-                np.hypot(x - near[0], y - near[1]) <= NEAR[name]
-                and np.hypot(x - far[0], y - far[1]) >= FAR[name]
+                np.linalg.norm(centre - near) <= NEAR[name]
+                and np.linalg.norm(centre - far) >= FAR[name]
             ):
                 break
+        x, y = centre
         yaw = self._rng.uniform(-np.pi, np.pi)
-        c, s = np.cos(yaw / 2), np.sin(yaw / 2)
+        upright = np.array([np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)])
         if name == "prism" and self._rng.random() < 0.5:
-            # Lying on a side, turned 90° about its own x axis: its origin, at one end,
-            # is 3.5 cm along the table from its centre, which is 1 cm above the table.
-            x, y = x - 0.035 * np.sin(yaw), y + 0.035 * np.cos(yaw)
-            r = np.sqrt(0.5)
-            return [x, y, TABLE_TOP + 0.01, r * c, r * c, r * s, r * s]
-        return [x, y, TABLE_TOP, c, 0, 0, s]
+            # Lying on a side. The prism's origin is at one end, so it goes half the
+            # prism's length along the table from the centre, and half its width up.
+            half_width, _, half_length = self.model.geom("prism").size
+            lying = np.empty(4)
+            mujoco.mju_mulQuat(lying, upright, ON_SIDE)
+            x, y = x - half_length * np.sin(yaw), y + half_length * np.cos(yaw)
+            return [x, y, TABLE_TOP + half_width, *lying]
+        return [x, y, TABLE_TOP, *upright]
 
     def _observation_schema(self) -> dict:
         lens = self._renderer.lens
@@ -226,3 +245,30 @@ class So101DualArm(Env):
         bgr = cv2.cvtColor(self._renderer.render(self.data, camera), cv2.COLOR_RGB2BGR)
         _, jpeg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         return base64.b64encode(jpeg).decode()
+
+
+class DefaultViewRenderer(ViewRenderer):
+    """Renders MuJoCo's default free camera, framed by scene.xml's <statistic>."""
+
+    def __init__(self, model: mujoco.MjModel, width: int, height: int):
+        model.vis.global_.offwidth = max(model.vis.global_.offwidth, width)
+        model.vis.global_.offheight = max(model.vis.global_.offheight, height)
+        self._model = model
+        self._data = mujoco.MjData(model)
+        self._camera = mujoco.MjvCamera()
+        mujoco.mjv_defaultFreeCamera(model, self._camera)
+        self._size = height, width
+        self._renderer: mujoco.Renderer | None = None
+
+    def render(self, positions: np.ndarray) -> np.ndarray:
+        if self._renderer is None:
+            # Created on first use, so its OpenGL context belongs to the render thread.
+            self._renderer = mujoco.Renderer(self._model, *self._size)
+        self._data.qpos[:] = positions
+        mujoco.mj_forward(self._model, self._data)
+        self._renderer.update_scene(self._data, self._camera)
+        return self._renderer.render()
+
+    def close(self) -> None:
+        if self._renderer is not None:
+            self._renderer.close()

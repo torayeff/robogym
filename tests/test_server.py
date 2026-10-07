@@ -6,7 +6,7 @@ import jsonschema
 import pytest
 from fastapi.testclient import TestClient
 
-from envs.so101_dual_arm.env import So101DualArm
+from robogym.envs.so101_dual_arm.env import So101DualArm
 from robogym.server import create_app
 
 
@@ -79,6 +79,28 @@ def test_pause_freezes_the_simulation_and_start_goes_on_from_there(client):
     time.sleep(1.5)
     joints = observe(client)["joints"]
     assert joints["left_shoulder_lift"] == pytest.approx(goal, abs=0.01)
+
+
+def test_start_after_a_failed_step_runs_the_simulation_again(
+    client, monkeypatch, caplog
+):
+    def fail(env, seconds):
+        raise RuntimeError("step failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(So101DualArm, "step", fail)
+        client.post("/start")
+        time.sleep(0.1)
+    assert "The simulation stopped" in caplog.text
+    client.post("/start")
+    time.sleep(0.2)
+    assert observe(client)["time"] > 0
+
+
+def test_the_viewer_page_is_at_the_root(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
 
 
 def test_reset_puts_everything_back_and_waits_for_start(client):

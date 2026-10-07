@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="u20cam">
+  <!-- InnoMaker U20CAM-1080P-S1 camera module: the overhead camera and both wrist cameras. -->
+  <compiler angle="radian" meshdir="assets" />
+  <default>
+    <default class="u20cam_collision">
+      <geom type="box" group="3" mass="0" friction="0.5 0.005 0.0001" condim="4" solref="0.006 1" solimp="0.95 0.99 0.001" />
+    </default>
+  </default>
+  <asset>
+    <material name="u20cam" rgba="0.06 0.06 0.06 1" roughness="0.62" />
+    <mesh file="u20cam_1080p.stl" />
+  </asset>
+  <worldbody>
+    <body name="camera">
+      <inertial pos="0.0018 0 0" mass="0.010" fullinertia="7.551e-07 8.188e-07 8.261e-07 0 0 0" />
+      <!-- At the lens front: the lens reaches 15.5 mm, so a camera at the body origin renders its own housing. fovy is the lens's vertical field of view; ../camera.py adds its distortion. -->
+      <camera name="camera" pos="0.016 0 0" xyaxes="0 -1 0 0 0 1" fovy="59.625" resolution="640 480" />
+      <geom type="mesh" mesh="u20cam_1080p" material="u20cam" contype="0" conaffinity="0" group="2" />
+      <geom name="camera_pcb" class="u20cam_collision" pos="-0.0048 0 0" size="0.0008 0.016 0.016" />
+      <geom name="camera_holder" class="u20cam_collision" pos="-0.002 0 0" size="0.002 0.007 0.007" />
+      <geom name="camera_lens" class="u20cam_collision" type="cylinder" pos="0.00775 0 0" quat="0.7071067811865476 0 0.7071067811865476 0" size="0.0075 0.00775" />
+    </body>
+  </worldbody>
+</mujoco>

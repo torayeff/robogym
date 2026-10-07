@@ -1,6 +1,7 @@
 """Tests for the SO-101 dual-arm environment, run without the server."""
 
 import base64
+import concurrent.futures
 import json
 
 import cv2
@@ -9,29 +10,11 @@ import mujoco
 import numpy as np
 import pytest
 
-from envs.so101_dual_arm.env import (
-    FAR,
-    FRONT,
-    NEAR,
-    PAN_AXIS_X,
-    PAN_AXIS_Y,
-    So101DualArm,
-)
-
-SEED = 0
-
-
-@pytest.fixture
-def env():
-    with So101DualArm(seed=SEED) as env:
-        yield env
+from robogym.envs.so101_dual_arm.env import FAR, FRONT, NEAR, So101DualArm
 
 
 def state(env: So101DualArm) -> np.ndarray:
-    """Everything that decides how the simulation goes on.
-
-    Time, positions, velocities, servo goals and the solver's warm start.
-    """
+    """MuJoCo's full integration state: everything the next mj_step depends on."""
     kind = mujoco.mjtState.mjSTATE_INTEGRATION
     out = np.empty(mujoco.mj_stateSize(env.model, kind))
     mujoco.mj_getState(env.model, env.data, out, kind)
@@ -111,8 +94,8 @@ def test_reset_folds_the_arms_and_draws_new_object_poses(env):
         assert not np.array_equal(env.data.joint(name).qpos, pose)
 
 
-def test_a_seed_gives_the_same_layouts(env):
-    with So101DualArm(seed=SEED) as same:
+def test_a_seed_gives_the_same_layouts():
+    with So101DualArm(seed=0) as env, So101DualArm(seed=0) as same:
         assert np.array_equal(state(same), state(env))
         env.reset()
         same.reset()
@@ -120,12 +103,16 @@ def test_a_seed_gives_the_same_layouts(env):
 
 
 def centres(env: So101DualArm) -> dict:
-    """Where the middles of the prism and of the tray's floor are."""
+    """The centres of the prism and of the tray's floor, in world coordinates."""
     mujoco.mj_forward(env.model, env.data)
     return {
-        "prism": env.data.geom_xpos[env.model.body("prism").geomadr[0]].copy(),
+        "prism": env.data.geom("prism").xpos.copy(),
         "storage": env.data.body("storage").xpos.copy(),
     }
+
+
+def pan_axis(env: So101DualArm, arm: str) -> np.ndarray:
+    return env.data.joint(f"{arm}_shoulder_pan").xanchor[:2]
 
 
 def test_each_object_starts_at_rest_where_only_the_arm_beside_it_reaches(env):
@@ -135,9 +122,10 @@ def test_each_object_starts_at_rest_where_only_the_arm_beside_it_reaches(env):
         start = centres(env)
         assert np.sign(start["prism"][1]) == -np.sign(start["storage"][1])
         for name, (x, y, _) in start.items():
-            near = np.hypot(x - PAN_AXIS_X, y - np.sign(y) * PAN_AXIS_Y)
-            far = np.hypot(x - PAN_AXIS_X, y + np.sign(y) * PAN_AXIS_Y)
-            assert near <= NEAR[name] and far >= FAR[name] and x >= FRONT[name]
+            own, other = ("left", "right") if y > 0 else ("right", "left")
+            assert np.linalg.norm([x, y] - pan_axis(env, own)) <= NEAR[name]
+            assert np.linalg.norm([x, y] - pan_axis(env, other)) >= FAR[name]
+            assert x >= FRONT[name]
         heights.add(round(start["prism"][2], 3))
         env.step(0.5)
         for name, centre in centres(env).items():
@@ -145,12 +133,25 @@ def test_each_object_starts_at_rest_where_only_the_arm_beside_it_reaches(env):
     assert heights == {0.775, 0.75}  # the prism stood and lay
 
 
-def test_observing_does_not_change_the_simulation(env):
-    with So101DualArm(seed=SEED) as unobserved:
+def test_observing_does_not_change_the_simulation():
+    with So101DualArm(seed=0) as env, So101DualArm(seed=0) as unobserved:
         for sim in (env, unobserved):
             sim.act({"joints": {"left_shoulder_lift": 0.0}})
         for _ in range(10):
             env.observe()
+            env.positions()
             env.step(0.1)
             unobserved.step(0.1)
         assert np.array_equal(state(env), state(unobserved))
+
+
+def test_the_view_renderer_draws_positions_on_a_thread_of_its_own(env):
+    renderer = env.view_renderer(320, 240)
+    rest = env.positions()
+    env.act({"joints": {"left_shoulder_lift": 0.0}})
+    env.step(1.0)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as thread:
+        images = list(thread.map(renderer.render, [rest, env.positions()]))
+        thread.submit(renderer.close).result()
+    assert images[0].shape == (240, 320, 3) and images[0].dtype == np.uint8
+    assert not np.array_equal(images[0], images[1])

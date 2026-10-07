@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mujoco model="so101">
-  <!-- Adapted from MuJoCo Menagerie robotstudio_so101, revision 822c2d8f877dd166c5b7d3c9f7e3c3b6589473b7. Modified for white printed parts and the original U20CAM wrist assembly; see ../README.md. -->
+  <!-- Adapted from MuJoCo Menagerie robotstudio_so101, revision 822c2d8f877dd166c5b7d3c9f7e3c3b6589473b7. Modified for white printed parts and a U20CAM wrist camera; see NOTICE.md. -->
   <compiler angle="radian" meshdir="assets" autolimits="true" />
   <default>
     <mesh maxhullvert="128" />
@@ -45,9 +45,8 @@
     <mesh maxhullvert="64" file="moving_jaw_so101_gripper_part1_v1.stl" />
     <material name="3d_printed" rgba="0.92 0.92 0.92 1" roughness="0.62" />
     <material name="sts3215" rgba="0.1 0.1 0.1 1" roughness="0.62" />
-    <material name="u20cam" rgba="0.06 0.06 0.06 1" roughness="0.62" />
     <mesh file="wrist_cam_mount_32x32_uvc_module_so101.stl" scale="0.001 0.001 0.001" />
-    <mesh file="u20cam_1080p.stl" />
+    <model name="u20cam" file="u20cam.xml" />
   </asset>
   <worldbody>
     <body name="base" pos="0 0 0" quat="1 0 0 0" childclass="so101">
@@ -119,15 +118,9 @@
                   <geom name="camera_mount_bend" class="camera_collision" pos="0.0025 0.0435 -0.001207" size="0.0175 0.016264 0.001914" euler="-0.7853981633974483 0 0" />
                   <geom name="camera_mount_plate" class="camera_collision" pos="0.0025 0.0721 -0.0053" size="0.0175 0.0189 0.002" euler="0.436332313 0 0" />
                 </frame>
-                <body name="wrist_camera" pos="0.0025 -0.0721 0.0041" quat="0.380968407761 0.595703903651 0.595703577007 -0.380968738618">
-                  <inertial pos="0.0018 0 0" mass="0.010" fullinertia="7.551e-07 8.188e-07 8.261e-07 0 0 0" />
-                  <!-- At the lens front: the lens reaches 15.5 mm, so a camera at the body origin renders its own housing. fovy is the lens's vertical field of view; ../camera.py adds its distortion. -->
-                  <camera name="wrist_camera" pos="0.016 0 0" xyaxes="0 -1 0 0 0 1" fovy="59.625" resolution="640 480" />
-                  <geom class="visual" mesh="u20cam_1080p" material="u20cam" />
-                  <geom name="wrist_camera_pcb" class="camera_collision" pos="-0.0048 0 0" size="0.0008 0.016 0.016" />
-                  <geom name="wrist_camera_holder" class="camera_collision" pos="-0.002 0 0" size="0.002 0.007 0.007" />
-                  <geom name="wrist_camera_lens" class="camera_collision" pos="0.00775 0 0" size="0.0075 0.00775" type="cylinder" quat="0.7071067811865476 0 0.7071067811865476 0" />
-                </body>
+                <frame pos="0.0025 -0.0721 0.0041" quat="0.380968407761 0.595703903651 0.595703577007 -0.380968738618">
+                  <attach model="u20cam" body="camera" prefix="wrist_" />
+                </frame>
                 <body name="moving_jaw_so101_v1" pos="0.0202 0.0188 -0.0234" quat="1 1 0 0">
                   <joint axis="0 0 1" name="gripper" type="hinge" range="-0.174533 1.7453292" class="sts3215" />
                   <inertial pos="-0.001575 -0.0300244 0.0192755" mass="0.012" fullinertia="6.61427e-06 1.89032e-06 5.28738e-06 -3.19807e-07 -5.90717e-09 -1.09945e-07" />

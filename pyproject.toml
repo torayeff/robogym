@@ -3,11 +3,22 @@ name = "robogym"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "av>=19.0.1",
     "fastapi>=0.142.2",
     "mujoco>=3.14.0",
     "opencv-python-headless>=5.0.0.93",
     "uvicorn>=0.54.0",
 ]
+
+[project.scripts]
+robogym = "robogym.server:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
 
 [dependency-groups]
 dev = [
@@ -17,5 +28,4 @@ dev = [
 ]
 
 [tool.pytest]
-pythonpath = ["."]
 testpaths = ["tests"]
