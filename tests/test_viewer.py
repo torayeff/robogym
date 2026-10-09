@@ -13,8 +13,11 @@ from robogym.viewer import HEIGHT, KEYFRAME_INTERVAL, WIDTH, Viewer, _Watcher
 def stream(env: So101DualArm, scenario) -> None:
     """Run `await scenario(viewer)` while a viewer streams env's view."""
 
+    async def state():
+        return env.state()
+
     async def main():
-        with Viewer(env) as viewer:
+        with Viewer(env, state) as viewer:
             streaming = asyncio.create_task(viewer.run())
             try:
                 await scenario(viewer)

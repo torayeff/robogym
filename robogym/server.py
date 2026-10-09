@@ -2,16 +2,16 @@
 
     uv run robogym so101_dual_arm
 
-Every endpoint runs on the event loop's thread, one at a time, so that thread makes
-every call to the environment and owns any OpenGL context it has. The viewer at /
-renders on its own thread.
+The environment runs in a process of its own (robogym/simulation.py), so nothing the
+server does can hold it up. Observations and the viewer at / are rendered from its
+states on threads of their own.
 """
 
 import argparse
 import asyncio
+import concurrent.futures
 import contextlib
 import logging
-import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
@@ -19,29 +19,14 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
-from robogym.env import Env
+from robogym.env import Env, Observer
 from robogym.envs import ENVS
+from robogym.simulation import Simulation
 from robogym.viewer import Viewer
 
-# How often a running simulation steps to keep up with the wall clock.
-TICK = 0.01
-# A longer stall, such as the computer sleeping, is skipped rather than simulated.
-MAX_LAG = 0.5
 VIEWER_PAGE = Path(__file__).with_name("viewer.html")
 
 logger = logging.getLogger(__name__)
-
-
-async def run_in_real_time(env: Env) -> None:
-    """Step env forever, keeping its time in line with the wall clock."""
-    origin = time.monotonic() - env.time  # the wall-clock time at which env.time was 0
-    while True:
-        await asyncio.sleep(TICK)
-        lag = time.monotonic() - origin - env.time
-        if lag > MAX_LAG:
-            origin += lag
-        else:
-            env.step(lag)
 
 
 def background(coroutine: Coroutine, name: str) -> asyncio.Task:
@@ -57,18 +42,28 @@ def background(coroutine: Coroutine, name: str) -> asyncio.Task:
 
 
 def create_app(make_env: Callable[[], Env]) -> FastAPI:
+    """Serve make_env's environment; make_env must be picklable, such as an Env class."""
     env: Env
+    simulation: Simulation
     viewer: Viewer
-    clock: asyncio.Task | None = None  # runs the simulation, from /start to /pause
+    observer: Observer
+    # Makes every observation, so it owns the observer's OpenGL context.
+    observing = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
-        nonlocal env, viewer
-        with make_env() as env, Viewer(env) as viewer:
+        nonlocal env, simulation, viewer, observer
+        with (
+            make_env() as env,
+            Simulation(make_env) as simulation,
+            Viewer(env, simulation.state) as viewer,
+        ):
+            observer = env.observer()
             streaming = background(viewer.run(), "viewer")
             yield
             streaming.cancel()
-            await pause()
+            observing.submit(observer.close)
+            observing.shutdown()
 
     app = FastAPI(title="robogym", lifespan=lifespan)
 
@@ -79,37 +74,33 @@ def create_app(make_env: Callable[[], Env]) -> FastAPI:
 
     @app.get("/observation")
     async def observe() -> dict:
-        """The current observation, in the format /spec gives."""
-        return env.observe()
+        """The observation as the request arrives, in the format /spec gives."""
+        state = await simulation.state()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(observing, observer.observe, state)
 
     @app.post("/action", status_code=204)
     async def act(action: dict) -> None:
         """Apply an action in the format /spec gives, without waiting for its effect."""
         try:
-            env.act(action)
+            await simulation.call("act", action)
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
     @app.post("/start", status_code=204)
     async def start() -> None:
         """Run the simulation in real time, from where it is."""
-        nonlocal clock
-        if clock is None or clock.done():  # done: a step failed
-            clock = background(run_in_real_time(env), "simulation")
+        await simulation.call("start")
 
     @app.post("/pause", status_code=204)
     async def pause() -> None:
         """Freeze simulation time; /start resumes from there."""
-        nonlocal clock
-        if clock is not None:
-            clock.cancel()
-            clock = None
+        await simulation.call("pause")
 
     @app.post("/reset", status_code=204)
     async def reset() -> None:
         """Stop the simulation and put it back to its starting state."""
-        await pause()
-        env.reset()
+        await simulation.call("reset")
 
     @app.get("/", include_in_schema=False)
     async def page() -> FileResponse:

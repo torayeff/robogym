@@ -65,7 +65,9 @@ class LensRenderer:
         half_height = math.ceil(f * np.abs(rays[..., 1]).max()) + 1
         model.vis.global_.offwidth = max(model.vis.global_.offwidth, 2 * half_width)
         model.vis.global_.offheight = max(model.vis.global_.offheight, 2 * half_height)
-        self._renderer = mujoco.Renderer(model, 2 * half_height, 2 * half_width)
+        self._model = model
+        self._size = 2 * half_height, 2 * half_width
+        self._renderer: mujoco.Renderer | None = None
         self._tan_half_fovy = half_height / f
         maps = (f * rays + [half_width - 0.5, half_height - 0.5]).astype(np.float32)
         self._map1, self._map2 = cv2.convertMaps(
@@ -73,6 +75,9 @@ class LensRenderer:
         )
 
     def render(self, data: mujoco.MjData, camera: int | str) -> np.ndarray:
+        if self._renderer is None:
+            # Created on first use, so its OpenGL context belongs to the render thread.
+            self._renderer = mujoco.Renderer(self._model, *self._size)
         self._renderer.update_scene(data, camera=camera)
         # Widen the frustum to fit the pinhole image, leaving the model's fovy as it is.
         for eye in self._renderer.scene.camera:
@@ -83,7 +88,8 @@ class LensRenderer:
         )
 
     def close(self) -> None:
-        self._renderer.close()
+        if self._renderer is not None:
+            self._renderer.close()
 
     def __enter__(self):
         return self

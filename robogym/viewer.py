@@ -11,7 +11,7 @@ frame in H.264's Annex B format.
 import asyncio
 import concurrent.futures
 import struct
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from fractions import Fraction
 
 import av
@@ -28,14 +28,14 @@ MIN_MOVE = 1e-6
 
 
 class Viewer:
-    """Sends env's default view to every browser watching, whenever it changes.
+    """Sends env's default view of state() to every browser watching, when it changes.
 
-    Make and close it on the environment's thread, and run() it on that thread's event
-    loop.
+    Make and close it on the event loop's thread, and run() it on that loop.
     """
 
-    def __init__(self, env: Env):
+    def __init__(self, env: Env, state: Callable[[], Awaitable[np.ndarray]]):
         self._env = env
+        self._state = state
         self._renderer = env.view_renderer(WIDTH, HEIGHT)
         self._encoder = _h264_encoder()
         # Renders and encodes every frame, so it owns the renderer's OpenGL context.
@@ -51,7 +51,7 @@ class Viewer:
         while True:
             start = loop.time()
             if self._watchers:
-                positions = self._env.positions()
+                positions = self._env.positions(await self._state())
                 if sent is None or np.any(np.abs(positions - sent) > MIN_MOVE):
                     frame, keyframe = await loop.run_in_executor(
                         self._render_thread, self._encode, positions

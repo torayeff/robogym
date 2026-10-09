@@ -1,5 +1,8 @@
 """Tests for the HTTP server, running the SO-101 dual-arm environment in real time."""
 
+import multiprocessing
+import os
+import signal
 import time
 
 import jsonschema
@@ -8,6 +11,18 @@ from fastapi.testclient import TestClient
 
 from robogym.envs.so101_dual_arm.env import So101DualArm
 from robogym.server import create_app
+
+
+class StepFailsOnce(So101DualArm):
+    """Its first step raises; a monkeypatch wouldn't reach the simulation's process."""
+
+    failed = False
+
+    def step(self, seconds: float) -> None:
+        if not self.failed:
+            self.failed = True
+            raise RuntimeError("step failed")
+        super().step(seconds)
 
 
 @pytest.fixture
@@ -51,6 +66,27 @@ def test_simulation_time_keeps_pace_with_the_wall_clock(client):
     assert second - first == pytest.approx(time.monotonic() - start, abs=0.1)
 
 
+def test_physics_keeps_to_the_wall_clock_while_observations_are_made(capfd):
+    with TestClient(create_app(So101DualArm)) as client:
+        client.post("/start")
+        move_left_shoulder(client, by=1.0)
+        end = time.monotonic() + 2.0
+        while time.monotonic() < end:
+            observe(client)
+    assert "behind the wall clock" not in capfd.readouterr().err
+
+
+def test_falling_behind_the_wall_clock_is_logged(capfd):
+    with TestClient(create_app(So101DualArm)) as client:
+        client.post("/start")
+        (simulation,) = multiprocessing.active_children()
+        os.kill(simulation.pid, signal.SIGSTOP)
+        time.sleep(0.05)
+        os.kill(simulation.pid, signal.SIGCONT)
+        time.sleep(0.1)
+    assert "The simulation fell" in capfd.readouterr().err
+
+
 def test_an_action_moves_the_arm_while_the_simulation_runs(client):
     client.post("/start")
     goal = move_left_shoulder(client, by=1.0)
@@ -81,20 +117,14 @@ def test_pause_freezes_the_simulation_and_start_goes_on_from_there(client):
     assert joints["left_shoulder_lift"] == pytest.approx(goal, abs=0.01)
 
 
-def test_start_after_a_failed_step_runs_the_simulation_again(
-    client, monkeypatch, caplog
-):
-    def fail(env, seconds):
-        raise RuntimeError("step failed")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(So101DualArm, "step", fail)
+def test_start_after_a_failed_step_runs_the_simulation_again(capfd):
+    with TestClient(create_app(StepFailsOnce)) as client:
         client.post("/start")
         time.sleep(0.1)
-    assert "The simulation stopped" in caplog.text
-    client.post("/start")
-    time.sleep(0.2)
-    assert observe(client)["time"] > 0
+        assert "The simulation stopped" in capfd.readouterr().err
+        client.post("/start")
+        time.sleep(0.2)
+        assert observe(client)["time"] > 0
 
 
 def test_the_viewer_page_is_at_the_root(client):

@@ -6,7 +6,8 @@ images of the three robot cameras. Each reset puts the prism and the tray in new
     with So101DualArm() as env:
         env.act({"joints": {"left_shoulder_lift": -0.75}})
         env.step(1.0)
-        observation = env.observe()  # {"time": ..., "joints": {...}, "images": {...}}
+        observer = env.observer()
+        observation = observer.observe(env.state())  # {"time", "joints", "images"}
 """
 
 import base64
@@ -16,9 +17,9 @@ import cv2
 import mujoco
 import numpy as np
 
-from robogym.env import Env, ViewRenderer
+from robogym.env import Env, Observer, ViewRenderer
 
-from .camera import LensRenderer
+from .camera import U20CAM, LensRenderer
 
 SCENE = Path(__file__).parent / "scene.xml"
 
@@ -64,6 +65,7 @@ CAMERAS = {
 }
 
 JPEG_QUALITY = 90
+STATE = mujoco.mjtState.mjSTATE_INTEGRATION  # everything mj_step depends on
 
 # Where reset() puts the objects. Each one's centre is
 # - within NEAR of its own arm's shoulder-pan axis, so that arm can pick the prism up
@@ -88,7 +90,6 @@ class So101DualArm(Env):
     def __init__(self, seed: int | None = None):
         self.model = mujoco.MjModel.from_xml_path(str(SCENE))
         self.data = mujoco.MjData(self.model)
-        self._renderer = LensRenderer(self.model)
         self._rng = np.random.default_rng(seed)
         mujoco.mj_kinematics(self.model, self.data)
         # The xy of each arm's vertical shoulder-pan axis, by side: 1 is the left arm.
@@ -109,6 +110,10 @@ class So101DualArm(Env):
     @property
     def time(self) -> float:
         return self.data.time
+
+    @property
+    def timestep(self) -> float:
+        return self.model.opt.timestep
 
     def step(self, seconds: float) -> None:
         steps = round(seconds / self.model.opt.timestep)
@@ -135,15 +140,10 @@ class So101DualArm(Env):
         for joint, goal in goals.items():
             self.data.ctrl[self.model.actuator(joint).id] = goal
 
-    def observe(self) -> dict:
-        # mj_step leaves body positions one physics step behind the joint angles;
-        # bring them up to date for rendering.
-        mujoco.mj_forward(self.model, self.data)
-        return {
-            "time": self.data.time,
-            "joints": {joint: self.data.joint(joint).qpos.item() for joint in JOINTS},
-            "images": {camera: self._render_jpeg(camera) for camera in CAMERAS},
-        }
+    def state(self) -> np.ndarray:
+        state = np.empty(mujoco.mj_stateSize(self.model, STATE))
+        mujoco.mj_getState(self.model, self.data, state, STATE)
+        return state
 
     def reset(self) -> None:
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.model.key("rest").id)
@@ -151,14 +151,14 @@ class So101DualArm(Env):
         for name, side in zip(("prism", "storage"), sides):
             self.data.joint(name).qpos = self._resting_pose(name, side)
 
-    def positions(self) -> np.ndarray:
-        return self.data.qpos.copy()
+    def positions(self, state: np.ndarray) -> np.ndarray:
+        return state[1 : 1 + self.model.nq].copy()  # the time, then qpos
+
+    def observer(self) -> Observer:
+        return RobotObserver(self.model)
 
     def view_renderer(self, width: int, height: int) -> ViewRenderer:
         return DefaultViewRenderer(self.model, width, height)
-
-    def close(self) -> None:
-        self._renderer.close()
 
     def _resting_pose(self, name: str, side: int) -> list[float]:
         """A free-joint qpos for the object, beside the arm at `side`."""
@@ -186,7 +186,7 @@ class So101DualArm(Env):
         return [x, y, TABLE_TOP, *upright]
 
     def _observation_schema(self) -> dict:
-        lens = self._renderer.lens
+        lens = U20CAM
         images = {
             camera: {
                 "type": "string",
@@ -241,8 +241,29 @@ class So101DualArm(Env):
             "additionalProperties": False,
         }
 
+
+class RobotObserver(Observer):
+    """Observes the joint angles, and the robot cameras through their lens."""
+
+    def __init__(self, model: mujoco.MjModel):
+        self._model = model
+        self._data = mujoco.MjData(model)
+        self._cameras = LensRenderer(model)
+
+    def observe(self, state: np.ndarray) -> dict:
+        mujoco.mj_setState(self._model, self._data, state, STATE)
+        mujoco.mj_forward(self._model, self._data)
+        return {
+            "time": self._data.time,
+            "joints": {joint: self._data.joint(joint).qpos.item() for joint in JOINTS},
+            "images": {camera: self._render_jpeg(camera) for camera in CAMERAS},
+        }
+
+    def close(self) -> None:
+        self._cameras.close()
+
     def _render_jpeg(self, camera: str) -> str:
-        bgr = cv2.cvtColor(self._renderer.render(self.data, camera), cv2.COLOR_RGB2BGR)
+        bgr = cv2.cvtColor(self._cameras.render(self._data, camera), cv2.COLOR_RGB2BGR)
         _, jpeg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         return base64.b64encode(jpeg).decode()
 
