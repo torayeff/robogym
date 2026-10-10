@@ -1,20 +1,26 @@
-"""Open the SO-101 dual-arm environment in the MuJoCo viewer, as a reset leaves it.
+"""Open the SO-101 dual-arm scene in MuJoCo's viewer; reload (Ctrl+L) resets it.
 
-    uv run python -m robogym.envs.so101_dual_arm
-
-Reload (Ctrl+L) resets the environment, which puts the prism and tray in new places.
+uv run python -m robogym.envs.so101_dual_arm
 """
 
+import mujoco
 import mujoco.viewer
 
-from .env import So101DualArm
+from .camera import U20CAM
+from .env import CAMERAS
+from .physics import STATE, So101DualArmPhysics, compile_scene
 
-env = So101DualArm()
+physics = So101DualArmPhysics()
+model = compile_scene(visual=True)
+for camera in CAMERAS:  # the viewer draws through a pinhole as wide as the lens
+    model.cam_fovy[model.camera(camera).id] = U20CAM.fovy
 
 
 def reset() -> tuple[mujoco.MjModel, mujoco.MjData]:
-    env.reset()
-    return env.model, env.data
+    physics.reset()
+    data = mujoco.MjData(model)
+    mujoco.mj_setState(model, data, physics.state(), STATE)
+    return model, data
 
 
 mujoco.viewer.launch(loader=reset)

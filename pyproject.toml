@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-robogym = "robogym.server:main"
+robogym = "robogym.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]

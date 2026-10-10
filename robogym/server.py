@@ -1,17 +1,11 @@
-"""Serves a robogym environment over HTTP, running it in real time from /start.
+"""Serves a robogym environment over HTTP."""
 
-    uv run robogym so101_dual_arm
-
-The environment runs in a process of its own (robogym/simulation.py), so nothing the
-server does can hold it up. Observations and the viewer at / are rendered from its
-states on threads of their own.
-"""
-
-import argparse
 import asyncio
-import concurrent.futures
 import contextlib
 import logging
+import os
+import signal
+import sys
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
@@ -19,14 +13,25 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
-from robogym.env import Env, Observer
-from robogym.envs import ENVS
-from robogym.simulation import Simulation
+from robogym.env import Env
+from robogym.envs import load
 from robogym.viewer import Viewer
 
 VIEWER_PAGE = Path(__file__).with_name("viewer.html")
+# How far the server lowers its priority, for when physics can't run in real time.
+NICE = 10
 
 logger = logging.getLogger(__name__)
+
+
+def lower_priority(by: int) -> None:
+    """Lower every thread of this process by `by` nice levels."""
+    if sys.platform == "linux":  # where each thread has a nice value of its own
+        for thread in map(int, os.listdir("/proc/self/task")):
+            nice = os.getpriority(os.PRIO_PROCESS, thread)
+            os.setpriority(os.PRIO_PROCESS, thread, nice + by)
+    elif hasattr(os, "nice"):
+        os.nice(by)
 
 
 def background(coroutine: Coroutine, name: str) -> asyncio.Task:
@@ -41,29 +46,38 @@ def background(coroutine: Coroutine, name: str) -> asyncio.Task:
     return task
 
 
-def create_app(make_env: Callable[[], Env]) -> FastAPI:
-    """Serve make_env's environment; make_env must be picklable, such as an Env class."""
+async def stop_if_dead(env: Env) -> None:
+    code = await env.wait()
+    logger.critical("The simulation died (exit code %s); stopping", code)
+    signal.raise_signal(signal.SIGTERM)  # uvicorn shuts down, then exits with it
+
+
+class Server(uvicorn.Server):
+    """Ends the /video streams as shutdown starts, which uvicorn would wait on."""
+
+    async def shutdown(self, sockets=None) -> None:
+        self.config.app.state.viewer.end_streams()
+        await super().shutdown(sockets)
+
+
+def create_app(make_env: Callable[[], Env], nice: int = 0) -> FastAPI:
+    """Serve make_env(), lowering the server's priority by `nice`."""
     env: Env
-    simulation: Simulation
     viewer: Viewer
-    observer: Observer
-    # Makes every observation, so it owns the observer's OpenGL context.
-    observing = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
-        nonlocal env, simulation, viewer, observer
-        with (
-            make_env() as env,
-            Simulation(make_env) as simulation,
-            Viewer(env, simulation.state) as viewer,
-        ):
-            observer = env.observer()
-            streaming = background(viewer.run(), "viewer")
+        nonlocal env, viewer
+        with make_env() as env:
+            lower_priority(nice)
+            viewer = app.state.viewer = Viewer(env.view)
+            tasks = [
+                background(viewer.run(), "viewer"),
+                background(stop_if_dead(env), "watch on the simulation"),
+            ]
             yield
-            streaming.cancel()
-            observing.submit(observer.close)
-            observing.shutdown()
+            for task in tasks:
+                task.cancel()
 
     app = FastAPI(title="robogym", lifespan=lifespan)
 
@@ -74,33 +88,36 @@ def create_app(make_env: Callable[[], Env]) -> FastAPI:
 
     @app.get("/observation")
     async def observe() -> dict:
-        """The observation as the request arrives, in the format /spec gives."""
-        state = await simulation.state()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(observing, observer.observe, state)
+        """An observation of one instant, in the format /spec gives."""
+        return await env.observe()
+
+    @app.get("/status")
+    async def status() -> dict:
+        """Whether the simulation runs, its time and resets, and how late steps ran."""
+        return await env.status()
 
     @app.post("/action", status_code=204)
     async def act(action: dict) -> None:
         """Apply an action in the format /spec gives, without waiting for its effect."""
         try:
-            await simulation.call("act", action)
+            await env.act(action)
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.post("/start", status_code=204)
-    async def start() -> None:
-        """Run the simulation in real time, from where it is."""
-        await simulation.call("start")
-
     @app.post("/pause", status_code=204)
     async def pause() -> None:
-        """Freeze simulation time; /start resumes from there."""
-        await simulation.call("pause")
+        """Freeze simulation time."""
+        await env.pause()
+
+    @app.post("/resume", status_code=204)
+    async def resume() -> None:
+        """Run the simulation in real time from where it is."""
+        await env.resume()
 
     @app.post("/reset", status_code=204)
     async def reset() -> None:
-        """Stop the simulation and put it back to its starting state."""
-        await simulation.call("reset")
+        """Put everything back to its starting state at time 0, paused."""
+        await env.reset()
 
     @app.get("/", include_in_schema=False)
     async def page() -> FileResponse:
@@ -113,14 +130,7 @@ def create_app(make_env: Callable[[], Env]) -> FastAPI:
     return app
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("env", choices=ENVS, help="the environment to serve")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
-    args = parser.parse_args()
-    uvicorn.run(create_app(ENVS[args.env]), host=args.host, port=args.port)
-
-
-if __name__ == "__main__":
-    main()
+def serve(env: str, host: str, port: int) -> None:
+    server = Server(uvicorn.Config(create_app(load(env), NICE), host=host, port=port))
+    with contextlib.suppress(KeyboardInterrupt):  # uvicorn raises Ctrl+C again at exit
+        server.run()

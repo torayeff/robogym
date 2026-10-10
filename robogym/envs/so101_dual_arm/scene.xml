@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mujoco model="so101_dual_arm">
-  <!-- Dual-arm SO-101 on a 100 x 60 x 74 cm table (an IKEA LINNMON/ADILS) with a prism and an open storage tray. -->
+  <!-- Dual-arm SO-101 on a 100 x 60 x 74 cm table (an IKEA LINNMON/ADILS) with a block and an open tray. -->
   <compiler angle="radian" />
-  <option timestep="0.00208333333333" integrator="implicitfast" iterations="50" ls_iterations="20" cone="elliptic" impratio="10" />
+  <option timestep="0.00208333333333" integrator="implicitfast" iterations="50" ls_iterations="20" cone="elliptic" impratio="10">
+    <flag autoreset="disable" />
+  </option>
+  <size memory="2M" />
   <!-- Frames the free camera, which the robogym viewer shows, and sets the clip planes, which scale with the extent. -->
   <statistic center="0.25 0 0.85" extent="0.8" />
   <visual>
@@ -51,15 +54,15 @@
     </frame>
 
     <!-- 20 x 20 x 70 mm, 11 g. -->
-    <body name="prism" pos="0.25 -0.315 0.74" childclass="object">
-      <freejoint name="prism" />
+    <body name="block" pos="0.25 -0.315 0.74" childclass="object">
+      <freejoint name="block" />
       <inertial mass="0.011" pos="0 0 0.035" diaginertia="4.858e-06 4.858e-06 7.333e-07" />
-      <geom name="prism" pos="0 0 0.035" size="0.01 0.01 0.035" />
+      <geom name="block" pos="0 0 0.035" size="0.01 0.01 0.035" />
     </body>
 
     <!-- 100 x 100 x 30 mm, 4 mm walls and bottom, 50 g. -->
-    <body name="storage" pos="0.29 0.333 0.74" childclass="object">
-      <freejoint name="storage" />
+    <body name="tray" pos="0.29 0.333 0.74" childclass="object">
+      <freejoint name="tray" />
       <inertial mass="0.05" pos="0 0 0.009494" diaginertia="6.354e-05 6.354e-05 0.0001186" />
       <geom pos="0 0 0.002" size="0.05 0.05 0.002" />
       <geom pos="0.048 0 0.017" size="0.002 0.046 0.013" />
@@ -69,7 +72,7 @@
     </body>
   </worldbody>
   <keyframe>
-    <!-- Folded rest pose, with the objects in one of the layouts a reset draws. qpos: left arm (6), right arm (6), prism (7), storage (7). -->
+    <!-- Folded rest pose, with the objects in one of the layouts a reset draws. qpos: left arm (6), right arm (6), block (7), tray (7). -->
     <key name="rest"
       qpos="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745  0.25 -0.315 0.74 1 0 0 0  0.29 0.333 0.74 1 0 0 0"
       ctrl="0 -1.7453 1.6 1.19 0 -0.1745  0 -1.7453 1.6 1.19 0 -0.1745" />

@@ -1,5 +1,12 @@
-"""The environments robogym can serve, by name."""
+"""The environments robogym serves, by name, each imported only when it's served."""
 
-from .so101_dual_arm.env import So101DualArm
+import importlib
 
-ENVS = {"so101_dual_arm": So101DualArm}
+from robogym.env import Env
+
+ENVS = {"so101_dual_arm": "robogym.envs.so101_dual_arm.env:So101DualArm"}
+
+
+def load(name: str) -> type[Env]:
+    module, _, cls = ENVS[name].partition(":")
+    return getattr(importlib.import_module(module), cls)

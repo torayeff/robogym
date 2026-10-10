@@ -1,28 +1,33 @@
-"""Tests for the HTTP server, running the SO-101 dual-arm environment in real time."""
+"""Tests for the HTTP server, serving the SO-101 dual-arm environment in real time."""
 
+import functools
 import multiprocessing
 import os
 import signal
+import socket
+import subprocess
+import sys
 import time
 
-import jsonschema
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
 from robogym.envs.so101_dual_arm.env import So101DualArm
+from robogym.envs.so101_dual_arm.physics import So101DualArmPhysics, compile_scene
 from robogym.server import create_app
 
 
-class StepFailsOnce(So101DualArm):
-    """Its first step raises; a monkeypatch wouldn't reach the simulation's process."""
+class StepFailsOnce(So101DualArmPhysics):
+    """Its first step raises; a monkeypatch wouldn't reach the physics process."""
 
     failed = False
 
-    def step(self, seconds: float) -> None:
+    def step(self, steps: int) -> None:
         if not self.failed:
             self.failed = True
             raise RuntimeError("step failed")
-        super().step(seconds)
+        super().step(steps)
 
 
 @pytest.fixture
@@ -31,68 +36,32 @@ def client():
         yield client
 
 
-def observe(client: TestClient) -> dict:
-    response = client.get("/observation")
-    assert response.status_code == 200
-    return response.json()
+def status(client: TestClient) -> dict:
+    return client.get("/status").json()
 
 
-def move_left_shoulder(client: TestClient, by: float) -> float:
-    """Set the left shoulder's goal `by` radians from where it is; returns the goal."""
-    goal = observe(client)["joints"]["left_shoulder_lift"] + by
-    response = client.post("/action", json={"joints": {"left_shoulder_lift": goal}})
-    assert response.status_code == 204
-    return goal
+def left_shoulder(client: TestClient) -> float:
+    return client.get("/observation").json()["joints"]["left_shoulder_lift"]
 
 
-def test_observation_matches_spec(client):
+def test_the_spec_has_every_servo_and_camera(client):
     spec = client.get("/spec").json()
-    assert spec["name"] == "so101_dual_arm"
-    jsonschema.validate(observe(client), spec["observation"])
-
-
-def test_the_simulation_waits_for_start(client):
-    move_left_shoulder(client, by=1.0)
-    time.sleep(0.2)
-    assert observe(client)["time"] == 0.0
-
-
-def test_simulation_time_keeps_pace_with_the_wall_clock(client):
-    assert client.post("/start").status_code == 204
-    start = time.monotonic()
-    first = observe(client)["time"]
-    time.sleep(0.5)
-    second = observe(client)["time"]
-    assert second - first == pytest.approx(time.monotonic() - start, abs=0.1)
-
-
-def test_physics_keeps_to_the_wall_clock_while_observations_are_made(capfd):
-    with TestClient(create_app(So101DualArm)) as client:
-        client.post("/start")
-        move_left_shoulder(client, by=1.0)
-        end = time.monotonic() + 2.0
-        while time.monotonic() < end:
-            observe(client)
-    assert "behind the wall clock" not in capfd.readouterr().err
-
-
-def test_falling_behind_the_wall_clock_is_logged(capfd):
-    with TestClient(create_app(So101DualArm)) as client:
-        client.post("/start")
-        (simulation,) = multiprocessing.active_children()
-        os.kill(simulation.pid, signal.SIGSTOP)
-        time.sleep(0.05)
-        os.kill(simulation.pid, signal.SIGCONT)
-        time.sleep(0.1)
-    assert "The simulation fell" in capfd.readouterr().err
+    model = compile_scene(visual=True)
+    goals = spec["action"]["properties"]["joints"]["properties"]
+    assert list(goals) == [model.actuator(i).name for i in range(model.nu)]
+    ranges = [[goal["minimum"], goal["maximum"]] for goal in goals.values()]
+    assert ranges == model.actuator_ctrlrange.tolist()
+    images = spec["observation"]["properties"]["images"]["properties"]
+    assert list(images) == ["top_camera", "left_wrist_camera", "right_wrist_camera"]
 
 
 def test_an_action_moves_the_arm_while_the_simulation_runs(client):
-    client.post("/start")
-    goal = move_left_shoulder(client, by=1.0)
+    client.post("/resume")
+    goal = left_shoulder(client) + 1.0
+    response = client.post("/action", json={"joints": {"left_shoulder_lift": goal}})
+    assert response.status_code == 204
     time.sleep(1.5)
-    joints = observe(client)["joints"]
-    assert joints["left_shoulder_lift"] == pytest.approx(goal, abs=0.01)
+    assert left_shoulder(client) == pytest.approx(goal, abs=0.01)
 
 
 def test_a_bad_action_is_rejected_with_the_reason(client):
@@ -101,30 +70,39 @@ def test_a_bad_action_is_rejected_with_the_reason(client):
     assert "Unknown joint 'left_elbow'" in response.json()["detail"]
 
 
-def test_pause_freezes_the_simulation_and_start_goes_on_from_there(client):
-    client.post("/start")
-    time.sleep(0.2)
-    assert client.post("/pause").status_code == 204
-    frozen = observe(client)
-    goal = move_left_shoulder(client, by=1.0)
-    time.sleep(0.3)
-    still = observe(client)
-    assert (still["time"], still["joints"]) == (frozen["time"], frozen["joints"])
-    client.post("/start")
-    assert frozen["time"] <= observe(client)["time"] < frozen["time"] + 0.1
-    time.sleep(1.5)
-    joints = observe(client)["joints"]
-    assert joints["left_shoulder_lift"] == pytest.approx(goal, abs=0.01)
-
-
-def test_start_after_a_failed_step_runs_the_simulation_again(capfd):
-    with TestClient(create_app(StepFailsOnce)) as client:
-        client.post("/start")
+def test_a_failed_step_resets_and_pauses_the_simulation():
+    with TestClient(
+        create_app(functools.partial(So101DualArm, StepFailsOnce))
+    ) as client:
+        client.post("/resume")
         time.sleep(0.1)
-        assert "The simulation stopped" in capfd.readouterr().err
-        client.post("/start")
+        after = status(client)
+        assert (after["running"], after["time"], after["resets"]) == (False, 0.0, 1)
+        client.post("/resume")
         time.sleep(0.2)
-        assert observe(client)["time"] > 0
+        assert status(client)["time"] > 0
+
+
+def test_late_steps_are_reported(client):
+    client.post("/resume")
+    (physics,) = multiprocessing.active_children()
+    os.kill(physics.pid, signal.SIGSTOP)
+    time.sleep(0.05)
+    os.kill(physics.pid, signal.SIGCONT)
+    time.sleep(0.1)
+    after = status(client)
+    assert after["late_steps"] >= 1 and after["max_lateness"] >= 0.04
+
+
+def test_the_server_stops_if_the_simulation_dies(monkeypatch, caplog):
+    signals = []
+    monkeypatch.setattr(signal, "raise_signal", signals.append)
+    with TestClient(create_app(So101DualArm)):
+        (physics,) = multiprocessing.active_children()
+        physics.kill()
+        time.sleep(0.5)
+    assert signals == [signal.SIGTERM]
+    assert "The simulation died" in caplog.text
 
 
 def test_the_viewer_page_is_at_the_root(client):
@@ -133,13 +111,26 @@ def test_the_viewer_page_is_at_the_root(client):
     assert response.headers["content-type"].startswith("text/html")
 
 
-def test_reset_puts_everything_back_and_waits_for_start(client):
-    start = observe(client)
-    client.post("/start")
-    move_left_shoulder(client, by=1.0)
-    time.sleep(1.0)
-    assert client.post("/reset").status_code == 204
-    time.sleep(0.2)
-    observation = observe(client)
-    assert observation["time"] == 0.0
-    assert observation["joints"] == pytest.approx(start["joints"], abs=1e-3)
+def test_physics_keeps_to_the_wall_clock_while_observations_are_made():
+    """Through the robogym command, at its real priorities."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    url = f"http://127.0.0.1:{port}"
+    command = [sys.executable, "-m", "robogym", "so101_dual_arm", "--port", str(port)]
+    server = subprocess.Popen(command, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(150):
+            try:
+                httpx2.post(f"{url}/resume")
+                break
+            except httpx2.ConnectError:
+                time.sleep(0.2)
+        httpx2.post(f"{url}/action", json={"joints": {"left_shoulder_lift": 0.0}})
+        end = time.monotonic() + 2.0
+        while time.monotonic() < end:
+            assert httpx2.get(f"{url}/observation").status_code == 200
+        assert httpx2.get(f"{url}/status").json()["late_steps"] == 0
+    finally:
+        server.send_signal(signal.SIGINT)
+        server.wait()

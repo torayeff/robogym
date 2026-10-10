@@ -1,15 +1,10 @@
-"""Streams an environment's default view to browsers as H.264, for viewer.html to show.
-
-A render thread renders and encodes each frame once for all browsers, so the event loop
-only copies positions and fans out bytes. A frame is made at most FPS times a second,
-and only when something has moved.
+"""Streams an environment's default view to browsers as H.264, for viewer.html.
 
 Each frame goes out as a 4-byte little-endian length, a keyframe flag byte, and the
 frame in H.264's Annex B format.
 """
 
 import asyncio
-import concurrent.futures
 import struct
 from collections.abc import AsyncIterator, Awaitable, Callable
 from fractions import Fraction
@@ -17,47 +12,28 @@ from fractions import Fraction
 import av
 import numpy as np
 
-from robogym.env import Env
+from robogym.env import VIEW_HEIGHT, VIEW_WIDTH
 
-WIDTH, HEIGHT = 1280, 720
 FPS = 30
-# A browser starts from a keyframe, so there is one every two seconds' worth of frames.
-KEYFRAME_INTERVAL = 2 * FPS
-# A frame is made when a position has moved more than this since the last one.
-MIN_MOVE = 1e-6
+KEYFRAME_INTERVAL = 2 * FPS  # a browser starts decoding at a keyframe
 
 
 class Viewer:
-    """Sends env's default view of state() to every browser watching, when it changes.
+    """Sends each new view to every browser watching, at most FPS times a second."""
 
-    Make and close it on the event loop's thread, and run() it on that loop.
-    """
-
-    def __init__(self, env: Env, state: Callable[[], Awaitable[np.ndarray]]):
-        self._env = env
-        self._state = state
-        self._renderer = env.view_renderer(WIDTH, HEIGHT)
+    def __init__(self, view: Callable[[], Awaitable[np.ndarray | None]]):
+        self._view = view
         self._encoder = _h264_encoder()
-        # Renders and encodes every frame, so it owns the renderer's OpenGL context.
-        self._render_thread = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self._watchers: set[_Watcher] = set()
-        # The frames since the last keyframe, which a joining browser needs first.
-        self._since_keyframe: list[bytes] = []
+        self._since_keyframe: list[bytes] = []  # what a joining browser needs first
+        self._ended = False
 
     async def run(self) -> None:
-        """Send a frame whenever the view changes, at most FPS times a second."""
         loop = asyncio.get_running_loop()
-        sent = None  # the positions of the last frame sent
         while True:
             start = loop.time()
-            if self._watchers:
-                positions = self._env.positions(await self._state())
-                if sent is None or np.any(np.abs(positions - sent) > MIN_MOVE):
-                    frame, keyframe = await loop.run_in_executor(
-                        self._render_thread, self._encode, positions
-                    )
-                    self._send(frame, keyframe)
-                    sent = positions
+            if self._watchers and (image := await self._view()) is not None:
+                self._send(*await asyncio.to_thread(self._encode, image))
             await asyncio.sleep(start + 1 / FPS - loop.time())
 
     async def watch(self) -> AsyncIterator[bytes]:
@@ -65,25 +41,19 @@ class Viewer:
         watcher = _Watcher(self._since_keyframe)
         self._watchers.add(watcher)
         try:
-            while True:
-                yield await watcher.frames.get()
+            while not self._ended and (frame := await watcher.frames.get()):
+                yield frame
         finally:
             self._watchers.discard(watcher)
 
-    def close(self) -> None:
-        """Close the renderer on the render thread, then stop the thread."""
-        self._render_thread.submit(self._renderer.close)
-        self._render_thread.shutdown()
+    def end_streams(self) -> None:
+        """End every browser's stream, and any that start later."""
+        self._ended = True
+        for watcher in self._watchers:
+            watcher.frames.put_nowait(b"")
+        self._watchers.clear()
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
-
-    def _encode(self, positions: np.ndarray) -> tuple[bytes, bool]:
-        """Render and encode one frame, on the render thread."""
-        image = self._renderer.render(positions)
+    def _encode(self, image: np.ndarray) -> tuple[bytes, bool]:
         frame = av.VideoFrame.from_ndarray(image, format="rgb24")
         (packet,) = self._encoder.encode(frame)  # zerolatency: one packet per frame
         data = bytes(packet)
@@ -91,7 +61,6 @@ class Viewer:
         return header + data, packet.is_keyframe
 
     def _send(self, frame: bytes, keyframe: bool) -> None:
-        """Queue a frame for every browser watching, and keep it for those to come."""
         if keyframe:
             self._since_keyframe.clear()
         self._since_keyframe.append(frame)
@@ -110,8 +79,7 @@ class _Watcher:
 
     def put(self, frame: bytes, keyframe: bool) -> None:
         """Queue a frame, unless this browser is skipping to the next keyframe."""
-        if self.frames.qsize() > KEYFRAME_INTERVAL:
-            # Too far behind: drop the backlog and resume at the next keyframe.
+        if self.frames.qsize() > KEYFRAME_INTERVAL:  # too far behind
             while not self.frames.empty():
                 self.frames.get_nowait()
             self._skipping = True
@@ -122,12 +90,9 @@ class _Watcher:
 
 
 def _h264_encoder() -> av.CodecContext:
-    """A libx264 encoder tuned for latency: no B-frames or lookahead.
-
-    Its profile and level match the avc1.64001f codec string viewer.html decodes.
-    """
+    """libx264 tuned for latency, at the avc1.64001f profile viewer.html decodes."""
     encoder = av.CodecContext.create("libx264", "w")
-    encoder.width, encoder.height = WIDTH, HEIGHT
+    encoder.width, encoder.height = VIEW_WIDTH, VIEW_HEIGHT
     encoder.pix_fmt = "yuv420p"
     encoder.time_base = Fraction(1, FPS)
     encoder.gop_size = KEYFRAME_INTERVAL

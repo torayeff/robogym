@@ -1,4 +1,4 @@
-"""Tests for the viewer, streaming the SO-101 dual-arm environment's default view."""
+"""Tests for the viewer, streaming views made up for the purpose."""
 
 import asyncio
 import struct
@@ -6,23 +6,34 @@ import struct
 import av
 import numpy as np
 
-from robogym.envs.so101_dual_arm.env import So101DualArm
-from robogym.viewer import HEIGHT, KEYFRAME_INTERVAL, WIDTH, Viewer, _Watcher
+from robogym.env import VIEW_HEIGHT, VIEW_WIDTH
+from robogym.viewer import KEYFRAME_INTERVAL, Viewer, _Watcher
 
 
-def stream(env: So101DualArm, scenario) -> None:
-    """Run `await scenario(viewer)` while a viewer streams env's view."""
+class Views:
+    """A view of one shade of grey, new whenever the shade changes."""
 
-    async def state():
-        return env.state()
+    def __init__(self):
+        self.shade, self._shown = 0, None
+
+    async def __call__(self) -> np.ndarray | None:
+        if self.shade == self._shown:
+            return None
+        self._shown = self.shade
+        return np.full((VIEW_HEIGHT, VIEW_WIDTH, 3), self.shade, np.uint8)
+
+
+def stream(scenario) -> None:
+    """Run `await scenario(viewer, views)` while a viewer streams views."""
 
     async def main():
-        with Viewer(env, state) as viewer:
-            streaming = asyncio.create_task(viewer.run())
-            try:
-                await scenario(viewer)
-            finally:
-                streaming.cancel()
+        views = Views()
+        viewer = Viewer(views)
+        streaming = asyncio.create_task(viewer.run())
+        try:
+            await scenario(viewer, views)
+        finally:
+            streaming.cancel()
 
     asyncio.run(main())
 
@@ -55,45 +66,53 @@ def decode(frames: list[bytes]) -> list[np.ndarray]:
     return images
 
 
-def test_a_browser_gets_the_view_at_once(env):
-    async def scenario(viewer):
+def test_a_browser_gets_the_view_at_once():
+    async def scenario(viewer, views):
         frames = watch(viewer)
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.2)
         assert len(frames) == 1 and is_keyframe(frames[0])
         (image,) = decode(frames)
-        assert image.shape == (HEIGHT, WIDTH, 3)
+        assert image.shape == (VIEW_HEIGHT, VIEW_WIDTH, 3)
 
-    stream(env, scenario)
+    stream(scenario)
 
 
-def test_a_frame_comes_only_when_something_moves(env):
-    async def scenario(viewer):
+def test_a_frame_comes_only_when_the_view_changes():
+    async def scenario(viewer, views):
         frames = watch(viewer)
-        await asyncio.sleep(0.3)
-        env.act({"joints": {"left_shoulder_lift": 0.0}})
-        env.step(1.0)
-        await asyncio.sleep(0.3)
-        assert len(frames) == 2  # one before the arm moved, one after
-        before, after = decode(frames)
-        changed = np.abs(after.astype(int) - before).max(axis=-1) > 50
-        assert changed.mean() > 0.003  # the arm is somewhere new in the picture
+        await asyncio.sleep(0.2)
+        views.shade = 200
+        await asyncio.sleep(0.2)
+        assert len(frames) == 2
+        dark, light = decode(frames)
+        assert dark.mean() < 10 and abs(light.mean() - 200) < 10
 
-    stream(env, scenario)
+    stream(scenario)
 
 
-def test_a_browser_joining_later_starts_at_the_last_keyframe(env):
-    async def scenario(viewer):
+def test_a_browser_joining_later_starts_at_the_last_keyframe():
+    async def scenario(viewer, views):
         first = watch(viewer)
-        env.act({"joints": {"left_shoulder_lift": 0.0}})
-        for _ in range(5):
-            env.step(0.1)
+        for shade in range(5):
+            views.shade = 40 * shade
             await asyncio.sleep(0.1)
         later = watch(viewer)
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.2)
         assert is_keyframe(later[0]) and later == first[-len(later) :]
         assert len(decode(later)) == len(later)
 
-    stream(env, scenario)
+    stream(scenario)
+
+
+def test_ending_the_streams_ends_those_watching_and_those_to_come():
+    async def scenario(viewer, views):
+        watching = viewer.watch()
+        assert is_keyframe(await anext(watching))
+        viewer.end_streams()
+        assert [frame async for frame in watching] == []
+        assert [frame async for frame in viewer.watch()] == []
+
+    stream(scenario)
 
 
 def test_a_browser_too_far_behind_skips_to_the_next_keyframe():
