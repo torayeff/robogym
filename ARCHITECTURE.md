@@ -77,13 +77,26 @@ The spec comes from the compiled model: the joint names and ranges, the objects'
 
 ## Starting and stopping
 
-`uv run robogym so101_dual_arm` runs the command in `robogym/__main__.py`. It reads its arguments and only then imports the server, because the spawned physics process re-imports the command's module, and would otherwise load the whole server too. As the server starts, it makes the environment, which spawns physics, compiles the whole scene and starts the render thread. Then the server lowers its own priority, and starts the viewer's loop and a watch on the physics process. The simulation waits at time 0 for `/resume`.
+`uv run robogym serve so101_dual_arm` runs the command in `robogym/__main__.py`. It reads its arguments and only then imports the server, because the spawned physics process re-imports the command's module, and would otherwise load the whole server too. As the server starts, it makes the environment, which spawns physics, compiles the whole scene and starts the render thread. Then the server lowers its own priority, and starts the viewer's loop and a watch on the physics process. The simulation waits at time 0 for `/resume`.
 
 Ctrl+C makes uvicorn shut down. First the server ends the video streams, since uvicorn would otherwise wait for the browsers to close them. Then the viewer's loop stops, the render thread frees the OpenGL context, and the physics process stops.
 
+## Serving from a sandbox
+
+`robogym sandbox create <env>`, in `robogym/sandbox.py`, serves an environment from a Modal sandbox of its own. The sandbox runs `robogym serve <env>`, and Modal gives its port a public HTTPS URL. The environment's package says what the sandbox needs, in two files:
+
+- `Dockerfile` makes the image. Modal builds it with the repository as its context, and uploads only the files it copies, less those in `.dockerignore`.
+- `sandbox.toml` gives the vCPUs, the memory, and the GPU if it draws on one.
+
+The sandbox's tags hold its environment's name, which `list` shows next to Modal's ID for the sandbox; `delete` takes that ID.
+
+Modal runs a sandbox either under gVisor or in a VM. gVisor stands in for the Linux kernel and refuses real-time scheduling; a VM allows it but has no GPUs. So a sandbox without a GPU runs in a VM, where physics gets real-time scheduling as on Linux with `CAP_SYS_NICE`. One with a GPU runs under gVisor, at normal priority. That kept every step on time in measurement, because drawing on the GPU leaves the CPUs free.
+
+A sandbox is idle while nothing is connected to its URL. It stops after 30 idle minutes, or after 2 hours in any case, and since the simulation lives only in its memory, a stopped sandbox is gone.
+
 ## Why it's built this way
 
-Measured on an M2 Mac:
+Measured on an M2 Mac, and the last two rows in Modal sandboxes with 4 vCPUs:
 
 | Choice | Rather than | Because |
 | --- | --- | --- |
@@ -100,12 +113,17 @@ Measured on an M2 Mac:
 | H.264, encoded once for every browser | MJPEG, or 3D in the browser | it shows anything the simulation can draw, costs about 0.6 cores whether 1 or 300 browsers watch, and needs far less bandwidth than MJPEG |
 | the server ending the video streams as it shuts down | uvicorn's graceful-shutdown timeout | the timeout cancels the streams and logs a traceback |
 | the server imported inside the command's `main()` | at the top of its module | the spawned physics process re-imports that module, and would load FastAPI, PyAV and OpenCV |
+| a T4 for so101_dual_arm's sandbox | drawing on its CPUs, with Mesa | an observation took 244 ms rather than 25, and the view ran at 7 frames a second rather than 29 |
+| a VM for a sandbox without a GPU | gVisor, Modal's default | under gVisor, without real-time scheduling, steps ran up to 18 ms late while drawing used the CPUs; in a VM, none did after its first 30 s |
 
 ## Adding an environment
 
 1. Make a package in `robogym/envs/` with a subclass of `Env`, and add `"<name>": "robogym.envs.<name>.env:<Class>"` to `ENVS` in `robogym/envs/__init__.py`. Only the environment being served is imported, so different engines' dependencies never meet.
 2. If robogym is to step the engine, subclass `Physics` and run it in a `PhysicsProcess`, as so101_dual_arm does. The physics process imports the class by name, so it must be importable, and its module mustn't load what only drawing needs. Its methods run between steps, so they must be quick, and its state must hold everything that drawing depends on.
-3. `tests/test_envs.py` checks every environment in `ENVS` against the contract. Add tests for what is particular to yours.
+3. To serve it from a sandbox, give its package two files, as so101_dual_arm does:
+   - a `Dockerfile` that installs what it needs alongside the repository;
+   - a `sandbox.toml` with its `vcpus`, its `memory_gib` and, if it draws on a GPU, the Modal `gpu` type.
+4. `tests/test_envs.py` checks every environment in `ENVS` against the contract. Add tests for what is particular to yours.
 
 ## Where things are
 
@@ -116,8 +134,9 @@ Measured on an M2 Mac:
 | `robogym/env.py` | `Env`, the contract between the server and an environment |
 | `robogym/physics.py` | `Physics` and `PhysicsProcess`, for engines that robogym steps itself |
 | `robogym/viewer.py`, `robogym/viewer.html` | the browser view, as H.264, and the page that shows it |
+| `robogym/sandbox.py` | serving environments from Modal sandboxes |
 | `robogym/envs/__init__.py` | `ENVS`, the environments by name |
-| `robogym/envs/so101_dual_arm/` | the SO-101 environment: `physics.py`, `env.py`, `camera.py`, the scene, and a README of its own |
+| `robogym/envs/so101_dual_arm/` | the SO-101 environment: `physics.py`, `env.py`, `camera.py`, the scene, its sandbox's `Dockerfile` and `sandbox.toml`, and a README of its own |
 | `tests/` | `test_envs.py` for the contract, and a file each for the server, the viewer and the SO-101 environment |
 
 To read the code after this, a good order is `env.py`, `physics.py`, then the SO-101 environment's `physics.py` and `env.py`, then `server.py` and `viewer.py`.

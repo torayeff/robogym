@@ -117,7 +117,8 @@ def test_physics_keeps_to_the_wall_clock_while_observations_are_made():
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     url = f"http://127.0.0.1:{port}"
-    command = [sys.executable, "-m", "robogym", "so101_dual_arm", "--port", str(port)]
+    command = [sys.executable, "-m", "robogym", "serve", "so101_dual_arm"]
+    command += ["--port", str(port)]
     server = subprocess.Popen(command, stderr=subprocess.DEVNULL)
     try:
         for _ in range(150):

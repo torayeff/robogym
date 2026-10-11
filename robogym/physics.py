@@ -168,8 +168,11 @@ def _raise_priority(period: float) -> None:
     elif hasattr(os, "sched_setscheduler"):
         try:
             os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(1))
-        except PermissionError:
-            logger.warning("Physics runs at normal priority: no CAP_SYS_NICE")
+        except OSError as error:
+            logger.warning(
+                "Physics runs at normal priority: SCHED_FIFO refused (%s)",
+                error.strerror,
+            )
 
 
 class _TimeConstraintPolicy(ctypes.Structure):

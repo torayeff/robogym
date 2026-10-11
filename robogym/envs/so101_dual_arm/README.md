@@ -11,6 +11,7 @@ Opens the scene in the MuJoCo viewer as a reset leaves it: arms folded, the bloc
 - `physics.py`: what the physics process steps: scene.xml without its visual-only parts. `So101DualArmPhysics(seed=...)` repeats the same layouts.
 - `env.py`: the environment as the server serves it: its spec, and the drawing of observations and the view from physics states.
 - `camera.py`: the robot cameras' wide-angle lens.
+- `Dockerfile`, `sandbox.toml`: the environment's Modal sandbox: its image, and the vCPUs, memory and GPU it runs on.
 - `scene.xml`: floor, lights, table, block, tray, rest keyframe.
 - `robot/so101_dual_arm.xml`: the mounting rig and the overhead camera; attaches `so101.xml` twice, prefixed `left_` and `right_`.
 - `robot/so101.xml`: one arm with its wrist camera.
