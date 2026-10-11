@@ -6,12 +6,12 @@ Two SO-101 arms with wrist cameras and an overhead camera, on a table with a blo
 uv run python -m robogym.envs.so101_dual_arm
 ```
 
-Opens the scene in the MuJoCo viewer as a reset leaves it: arms folded, the block and the tray in random places. Reload (Ctrl+L) resets it. Drive the 12 position actuators (`{left,right}_{shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper}`, radians) with the Control sliders. Cameras: `overview`, `top_camera`, `left_wrist_camera`, `right_wrist_camera`. The block and the tray have free joints named `block` and `tray`.
+Opens the scene in the MuJoCo viewer as a reset leaves it: arms folded, the block and the tray in random places. Reload (Ctrl+L) resets it. The Control sliders set the servos' goal angles, in radians, and the block and the tray have free joints named `block` and `tray`.
 
-- `physics.py`: what the physics process steps: scene.xml without its visual-only parts. `So101DualArmPhysics(seed=...)` repeats the same layouts.
-- `env.py`: the environment as the server serves it: its spec, and the drawing of observations and the view from physics states.
+- `physics.py`: what the physics process steps, scene.xml without its visual-only parts.
+- `env.py`: the environment as the server serves it: its spec, its check of actions, and the drawing of observations and the view from physics states.
 - `camera.py`: the robot cameras' wide-angle lens.
-- `Dockerfile`, `sandbox.toml`: the environment's Modal sandbox: its image, and the vCPUs, memory and GPU it runs on.
+- `Dockerfile`, `sandbox.toml`: the image and the resources of its Modal sandbox.
 - `scene.xml`: floor, lights, table, block, tray, rest keyframe.
 - `robot/so101_dual_arm.xml`: the mounting rig and the overhead camera; attaches `so101.xml` twice, prefixed `left_` and `right_`.
 - `robot/so101.xml`: one arm with its wrist camera.

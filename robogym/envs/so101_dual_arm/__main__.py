@@ -12,7 +12,7 @@ from .physics import STATE, So101DualArmPhysics, compile_scene
 
 physics = So101DualArmPhysics()
 model = compile_scene(visual=True)
-for camera in CAMERAS:  # the viewer draws through a pinhole as wide as the lens
+for camera in CAMERAS:
     model.cam_fovy[model.camera(camera).id] = U20CAM.fovy
 
 

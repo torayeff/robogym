@@ -6,23 +6,24 @@ from pathlib import Path
 import modal
 
 PORT = 8000
+VCPUS_PER_CORE = 2
 IDLE_TIMEOUT = 30 * 60
 LIFETIME = 2 * 60 * 60
 REPO = Path(__file__).parents[1]
 
 
-def create(env: str) -> tuple[str, str]:
-    """Serve env from a new sandbox, and return its ID and URL once it serves."""
-    package = Path(__file__).with_name("envs") / env
+def create(env_name: str) -> tuple[str, str]:
+    """Serve env_name from a new sandbox, and return its ID and URL once it serves."""
+    package = Path(__file__).with_name("envs") / env_name
     requirements = tomllib.loads((package / "sandbox.toml").read_text())
-    command = ["robogym", "serve", env, "--host", "0.0.0.0", "--port", str(PORT)]
+    command = ["robogym", "serve", env_name, "--host", "0.0.0.0", "--port", str(PORT)]
     with modal.enable_output():
         sandbox = modal.Sandbox.create(
             *command,
             app=_app(),
-            tags={"env": env},
+            tags={"env": env_name},
             image=modal.Image.from_dockerfile(package / "Dockerfile", context_dir=REPO),
-            cpu=requirements["vcpus"] / 2,
+            cpu=requirements["vcpus"] / VCPUS_PER_CORE,
             memory=requirements["memory_gib"] * 1024,
             gpu=requirements.get("gpu"),
             runtime="gvisor" if "gpu" in requirements else "vm",

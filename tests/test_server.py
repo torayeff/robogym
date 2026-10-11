@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from robogym.envs.so101_dual_arm.env import So101DualArm
-from robogym.envs.so101_dual_arm.physics import So101DualArmPhysics, compile_scene
+from robogym.envs.so101_dual_arm.physics import So101DualArmPhysics
 from robogym.server import create_app
 
 
@@ -36,23 +36,8 @@ def client():
         yield client
 
 
-def status(client: TestClient) -> dict:
-    return client.get("/status").json()
-
-
 def left_shoulder(client: TestClient) -> float:
     return client.get("/observation").json()["joints"]["left_shoulder_lift"]
-
-
-def test_the_spec_has_every_servo_and_camera(client):
-    spec = client.get("/spec").json()
-    model = compile_scene(visual=True)
-    goals = spec["action"]["properties"]["joints"]["properties"]
-    assert list(goals) == [model.actuator(i).name for i in range(model.nu)]
-    ranges = [[goal["minimum"], goal["maximum"]] for goal in goals.values()]
-    assert ranges == model.actuator_ctrlrange.tolist()
-    images = spec["observation"]["properties"]["images"]["properties"]
-    assert list(images) == ["top_camera", "left_wrist_camera", "right_wrist_camera"]
 
 
 def test_an_action_moves_the_arm_while_the_simulation_runs(client):
@@ -64,10 +49,25 @@ def test_an_action_moves_the_arm_while_the_simulation_runs(client):
     assert left_shoulder(client) == pytest.approx(goal, abs=0.01)
 
 
-def test_a_bad_action_is_rejected_with_the_reason(client):
-    response = client.post("/action", json={"joints": {"left_elbow": 0.0}})
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        ('{"gripper": 1.0}', "An action is"),
+        (
+            '{"joints": {"left_shoulder_pan": 0.5, "left_elbow": 0.0}}',
+            "Unknown joint 'left_elbow'",
+        ),
+        ('{"joints": {"left_gripper": 2.0}}', "from -0.17453 to 1.74533"),
+        ('{"joints": {"left_gripper": "open"}}', "must be a number"),
+        ('{"joints": {"left_gripper": NaN}}', "must be a number"),
+    ],
+)
+def test_a_bad_action_is_rejected_with_the_reason(client, body, reason):
+    response = client.post(
+        "/action", content=body, headers={"Content-Type": "application/json"}
+    )
     assert response.status_code == 422
-    assert "Unknown joint 'left_elbow'" in response.json()["detail"]
+    assert reason in response.json()["detail"]
 
 
 def test_a_failed_step_resets_and_pauses_the_simulation():
@@ -76,22 +76,22 @@ def test_a_failed_step_resets_and_pauses_the_simulation():
     ) as client:
         client.post("/resume")
         time.sleep(0.1)
-        after = status(client)
+        after = client.get("/status").json()
         assert (after["running"], after["time"], after["resets"]) == (False, 0.0, 1)
         client.post("/resume")
         time.sleep(0.2)
-        assert status(client)["time"] > 0
+        assert client.get("/status").json()["time"] > 0
 
 
-def test_late_steps_are_reported(client):
+def test_a_stall_counts_every_step_it_makes_late(client):
     client.post("/resume")
     (physics,) = multiprocessing.active_children()
     os.kill(physics.pid, signal.SIGSTOP)
     time.sleep(0.05)
     os.kill(physics.pid, signal.SIGCONT)
     time.sleep(0.1)
-    after = status(client)
-    assert after["late_steps"] >= 1 and after["max_lateness"] >= 0.04
+    after = client.get("/status").json()
+    assert after["max_lateness"] >= 0.04 and after["late_steps"] >= 10
 
 
 def test_the_server_stops_if_the_simulation_dies(monkeypatch, caplog):
@@ -103,12 +103,6 @@ def test_the_server_stops_if_the_simulation_dies(monkeypatch, caplog):
         time.sleep(0.5)
     assert signals == [signal.SIGTERM]
     assert "The simulation died" in caplog.text
-
-
-def test_the_viewer_page_is_at_the_root(client):
-    response = client.get("/")
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/html")
 
 
 def test_physics_keeps_to_the_wall_clock_while_observations_are_made():

@@ -15,7 +15,7 @@ import numpy as np
 from robogym.env import VIEW_HEIGHT, VIEW_WIDTH
 
 FPS = 30
-KEYFRAME_INTERVAL = 2 * FPS  # a browser starts decoding at a keyframe
+KEYFRAME_INTERVAL = 2 * FPS
 
 
 class Viewer:
@@ -25,7 +25,7 @@ class Viewer:
         self._view = view
         self._encoder = _h264_encoder()
         self._watchers: set[_Watcher] = set()
-        self._since_keyframe: list[bytes] = []  # what a joining browser needs first
+        self._since_keyframe: list[bytes] = []
         self._ended = False
 
     async def run(self) -> None:
@@ -55,7 +55,7 @@ class Viewer:
 
     def _encode(self, image: np.ndarray) -> tuple[bytes, bool]:
         frame = av.VideoFrame.from_ndarray(image, format="rgb24")
-        (packet,) = self._encoder.encode(frame)  # zerolatency: one packet per frame
+        (packet,) = self._encoder.encode(frame)
         data = bytes(packet)
         header = struct.pack("<IB", len(data), packet.is_keyframe)
         return header + data, packet.is_keyframe
@@ -79,7 +79,7 @@ class _Watcher:
 
     def put(self, frame: bytes, keyframe: bool) -> None:
         """Queue a frame, unless this browser is skipping to the next keyframe."""
-        if self.frames.qsize() > KEYFRAME_INTERVAL:  # too far behind
+        if self.frames.qsize() > KEYFRAME_INTERVAL:
             while not self.frames.empty():
                 self.frames.get_nowait()
             self._skipping = True

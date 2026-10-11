@@ -13,7 +13,6 @@
 <body>
   <canvas></canvas>
   <script type="module">
-    // Shows /video, the simulation's default view, as robogym/viewer.py streams it.
     const canvas = document.querySelector("canvas");
     const context = canvas.getContext("2d");
 
@@ -27,7 +26,6 @@
         },
         error: console.error,
       });
-      // High profile, level 3.1: what robogym/viewer.py encodes.
       decoder.configure({ codec: "avc1.64001f", optimizeForLatency: true });
       try {
         const reader = (await fetch("/video")).body.getReader();
@@ -37,7 +35,6 @@
           const { value, done } = await reader.read();
           if (done) return;
           pending = concat(pending, value);
-          // Each frame is a 4-byte little-endian length, a keyframe flag byte, and the frame.
           while (pending.length >= 5) {
             const size = new DataView(pending.buffer, pending.byteOffset).getUint32(0, true);
             if (pending.length < 5 + size) break;
@@ -63,7 +60,6 @@
     }
 
     if ("VideoDecoder" in window) {
-      // Reconnect a second after the stream ends, e.g. when the server restarts.
       while (true) {
         await play().catch(console.error);
         await new Promise((resolve) => setTimeout(resolve, 1000));

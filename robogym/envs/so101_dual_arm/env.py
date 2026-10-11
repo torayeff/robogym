@@ -1,8 +1,4 @@
-"""The SO-101 dual-arm scene as a robogym environment.
-
-Actions set goal angles for the 12 servos; observations hold the joint angles and the
-images of the three robot cameras. Each reset puts the block and the tray in new places.
-"""
+"""The SO-101 dual-arm scene as a robogym environment."""
 
 import asyncio
 import base64
@@ -30,7 +26,6 @@ DESCRIPTION = (
     "both arms are folded, grippers just above the table; turning a folded arm more "
     "than about 0.8 rad can swing it into the camera mast between the arms."
 )
-# What each servo does, the same on both arms. The signs are measured from the model.
 SERVOS = {
     "shoulder_pan": "Turns the arm about the vertical axis; positive turns it right.",
     "shoulder_lift": "Tilts the upper arm; positive swings it forward and down.",
@@ -52,15 +47,15 @@ JPEG_QUALITY = 90
 
 
 class So101DualArm(Env):
-    """Physics runs in a process of its own; observations and the view are drawn
-    here, from its states."""
+    """Steps physics in a process of its own, and draws from its states here."""
 
     def __init__(
-        self, physics: Callable[[], So101DualArmPhysics] = So101DualArmPhysics
+        self, make_physics: Callable[[], So101DualArmPhysics] = So101DualArmPhysics
     ):
-        self._physics = PhysicsProcess(physics)
+        self._physics = PhysicsProcess(make_physics)
         model = compile_scene(visual=True)
         self._spec = _spec(model)
+        self._goal_ranges = _goal_ranges(model)
         self._renderer = Renderer(model)
         self._observing = 0
         self._viewed = None
@@ -77,6 +72,7 @@ class So101DualArm(Env):
             self._observing -= 1
 
     async def act(self, action: dict) -> None:
+        _check(action, self._goal_ranges)
         await self._physics.call("act", action)
 
     async def pause(self) -> None:
@@ -89,7 +85,7 @@ class So101DualArm(Env):
         await self._physics.call("reset")
 
     async def view(self) -> np.ndarray | None:
-        if self._observing:  # observations go first
+        if self._observing:
             return None
         state = await self._physics.call("state")
         if self._viewed is not None and np.array_equal(state, self._viewed):
@@ -109,22 +105,21 @@ class So101DualArm(Env):
 
 
 class Renderer:
-    """Draws observations and the default view from states, on one GL context that a
-    thread of its own makes, uses and frees."""
+    """Draws observations and the view from states, on one GL context and thread."""
 
     def __init__(self, model: mujoco.MjModel):
-        self._thread = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        self._thread.submit(self._open, model).result()
+        self._render_thread = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._render_thread.submit(self._open, model).result()
 
     def observe(self, state: np.ndarray) -> concurrent.futures.Future:
-        return self._thread.submit(self._observe, state)
+        return self._render_thread.submit(self._observe, state)
 
     def view(self, state: np.ndarray) -> concurrent.futures.Future:
-        return self._thread.submit(self._view, state)
+        return self._render_thread.submit(self._view, state)
 
     def close(self) -> None:
-        self._thread.submit(self._close)
-        self._thread.shutdown()
+        self._render_thread.submit(self._close)
+        self._render_thread.shutdown()
 
     def _open(self, model: mujoco.MjModel) -> None:
         self._lens = LensMap(U20CAM)
@@ -193,7 +188,7 @@ class Renderer:
             mujoco.mjtCatBit.mjCAT_ALL,
             self._scene,
         )
-        if tan_half_fovy:  # widen the camera's frustum, leaving its fovy as it is
+        if tan_half_fovy:
             for eye in self._scene.camera:
                 eye.frustum_bottom = -eye.frustum_near * tan_half_fovy
                 eye.frustum_top = eye.frustum_near * tan_half_fovy
@@ -212,7 +207,7 @@ def _spec(model: mujoco.MjModel) -> dict:
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
     camera_height = 100 * (data.cam("top_camera").xpos[2] - table_height(model))
-    joints = [model.actuator(i).name for i in range(model.nu)]
+    ranges = _goal_ranges(model)
     images = {
         name: {
             "type": "string",
@@ -230,7 +225,7 @@ def _spec(model: mujoco.MjModel) -> dict:
             "maximum": high,
             "description": SERVOS[joint.split("_", 1)[1]],
         }
-        for joint, (low, high) in zip(joints, model.actuator_ctrlrange.tolist())
+        for joint, (low, high) in ranges.items()
     }
     return {
         "name": "so101_dual_arm",
@@ -247,8 +242,8 @@ def _spec(model: mujoco.MjModel) -> dict:
                 "joints": {
                     "type": "object",
                     "description": "Measured joint angles in radians.",
-                    "properties": {joint: {"type": "number"} for joint in joints},
-                    "required": joints,
+                    "properties": {joint: {"type": "number"} for joint in ranges},
+                    "required": list(ranges),
                 },
                 "images": {
                     "type": "object",
@@ -275,6 +270,14 @@ def _spec(model: mujoco.MjModel) -> dict:
     }
 
 
+def _goal_ranges(model: mujoco.MjModel) -> dict[str, tuple[float, float]]:
+    """Each servo's joint, and the range its goal angle can take."""
+    return {
+        model.actuator(i).name: tuple(model.actuator_ctrlrange[i].tolist())
+        for i in range(model.nu)
+    }
+
+
 def _size(model: mujoco.MjModel, body: str) -> str:
     """The extent of a body's box geoms, as "W x D x H cm"."""
     first = model.body(body).geomadr.item()
@@ -282,3 +285,21 @@ def _size(model: mujoco.MjModel, body: str) -> str:
     pos, size = model.geom_pos[geoms], model.geom_size[geoms]
     extent = 100 * ((pos + size).max(axis=0) - (pos - size).min(axis=0))
     return " x ".join(f"{x:.0f}" for x in extent) + " cm"
+
+
+def _check(action: dict, goal_ranges: dict[str, tuple[float, float]]) -> None:
+    """Raise ValueError, saying what is wrong, unless the action fits the spec."""
+    goals = action.get("joints")
+    if action.keys() != {"joints"} or not isinstance(goals, dict):
+        raise ValueError('An action is {"joints": {joint: goal in radians, ...}}.')
+    for joint, goal in goals.items():
+        if joint not in goal_ranges:
+            joints = ", ".join(goal_ranges)
+            raise ValueError(f"Unknown joint {joint!r}; the joints are {joints}.")
+        low, high = goal_ranges[joint]
+        is_number = isinstance(goal, int | float) and not isinstance(goal, bool)
+        if not (is_number and low <= goal <= high):
+            raise ValueError(
+                f"The goal for {joint} must be a number from {low} to {high}, "
+                f"not {goal!r}."
+            )

@@ -18,7 +18,6 @@ from robogym.envs import load
 from robogym.viewer import Viewer
 
 VIEWER_PAGE = Path(__file__).with_name("viewer.html")
-# How far the server lowers its priority, for when physics can't run in real time.
 NICE = 10
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def lower_priority(by: int) -> None:
     """Lower every thread of this process by `by` nice levels."""
-    if sys.platform == "linux":  # where each thread has a nice value of its own
+    if sys.platform == "linux":
         for thread in map(int, os.listdir("/proc/self/task")):
             nice = os.getpriority(os.PRIO_PROCESS, thread)
             os.setpriority(os.PRIO_PROCESS, thread, nice + by)
@@ -49,7 +48,7 @@ def background(coroutine: Coroutine, name: str) -> asyncio.Task:
 async def stop_if_dead(env: Env) -> None:
     code = await env.wait()
     logger.critical("The simulation died (exit code %s); stopping", code)
-    signal.raise_signal(signal.SIGTERM)  # uvicorn shuts down, then exits with it
+    signal.raise_signal(signal.SIGTERM)
 
 
 class Server(uvicorn.Server):
@@ -63,16 +62,15 @@ class Server(uvicorn.Server):
 def create_app(make_env: Callable[[], Env], nice: int = 0) -> FastAPI:
     """Serve make_env(), lowering the server's priority by `nice`."""
     env: Env
-    viewer: Viewer
 
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
-        nonlocal env, viewer
+        nonlocal env
         with make_env() as env:
             lower_priority(nice)
-            viewer = app.state.viewer = Viewer(env.view)
+            app.state.viewer = Viewer(env.view)
             tasks = [
-                background(viewer.run(), "viewer"),
+                background(app.state.viewer.run(), "viewer"),
                 background(stop_if_dead(env), "watch on the simulation"),
             ]
             yield
@@ -125,12 +123,15 @@ def create_app(make_env: Callable[[], Env], nice: int = 0) -> FastAPI:
 
     @app.get("/video", include_in_schema=False)
     async def video() -> StreamingResponse:
-        return StreamingResponse(viewer.watch(), media_type="application/octet-stream")
+        return StreamingResponse(
+            app.state.viewer.watch(), media_type="application/octet-stream"
+        )
 
     return app
 
 
-def serve(env: str, host: str, port: int) -> None:
-    server = Server(uvicorn.Config(create_app(load(env), NICE), host=host, port=port))
-    with contextlib.suppress(KeyboardInterrupt):  # uvicorn raises Ctrl+C again at exit
+def serve(env_name: str, host: str, port: int) -> None:
+    app = create_app(load(env_name), NICE)
+    server = Server(uvicorn.Config(app, host=host, port=port))
+    with contextlib.suppress(KeyboardInterrupt):
         server.run()

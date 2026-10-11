@@ -1,5 +1,4 @@
-"""For engines that robogym steps itself: the Physics they implement, and the
-PhysicsProcess that steps one in real time, in a process of its own."""
+"""Physics and PhysicsProcess, for engines that robogym steps itself in real time."""
 
 import abc
 import asyncio
@@ -18,9 +17,9 @@ from multiprocessing.connection import Connection
 
 import numpy as np
 
-# A longer stall, such as the computer sleeping, is skipped rather than caught up.
 MAX_LAG = 0.5
 THREAD_TIME_CONSTRAINT_POLICY = 2
+THREAD_TIME_CONSTRAINT_POLICY_COUNT = 4
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +43,11 @@ class Physics(abc.ABC):
 
     @abc.abstractmethod
     def act(self, action: dict) -> None:
-        """Apply an action, or raise ValueError and change nothing."""
+        """Apply an action that the environment has already checked."""
 
     @abc.abstractmethod
     def state(self) -> np.ndarray:
-        """Everything that drawing the simulation as it is now depends on."""
+        """Everything needed to draw the simulation as it is now."""
 
     @abc.abstractmethod
     def reset(self) -> None:
@@ -56,10 +55,7 @@ class Physics(abc.ABC):
 
 
 class PhysicsProcess:
-    """Steps make_physics() in real time between "resume" and "pause" or "reset".
-
-    make_physics must be picklable, such as a Physics class.
-    """
+    """Steps make_physics() in real time, in a process of its own."""
 
     def __init__(self, make_physics: Callable[[], Physics]):
         context = multiprocessing.get_context("spawn")
@@ -70,12 +66,14 @@ class PhysicsProcess:
         self._process.start()
         connection.close()
         self._connection.recv()
-        self._thread = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._pipe_thread = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     async def call(self, command: str, argument=None):
         """Have physics act, pause, resume, reset, or give its state or status."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._thread, self._call, command, argument)
+        return await loop.run_in_executor(
+            self._pipe_thread, self._call, command, argument
+        )
 
     async def wait(self) -> int:
         """The exit code, once the process has ended."""
@@ -84,7 +82,7 @@ class PhysicsProcess:
         return self._process.exitcode
 
     def close(self) -> None:
-        self._thread.shutdown()
+        self._pipe_thread.shutdown()
         if self._process.is_alive():
             self._connection.send(("stop", None))
         self._process.join()
@@ -98,7 +96,7 @@ class PhysicsProcess:
 
 
 def _run(make_physics: Callable[[], Physics], connection: Connection) -> None:
-    signal.signal(signal.SIGINT, signal.SIG_IGN)  # the server stops us
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     physics = make_physics()
     _raise_priority(physics.timestep)
     connection.send(None)
@@ -110,11 +108,12 @@ def _run(make_physics: Callable[[], Physics], connection: Connection) -> None:
             due = origin + physics.time + physics.timestep
             time.sleep(max(0.0, due - time.monotonic()))
             now = time.monotonic()
-            max_lateness = max(max_lateness, now - due)
-            if now - due > physics.timestep:
-                late_steps += 1
+            lateness = now - due
+            max_lateness = max(max_lateness, lateness)
+            if lateness > physics.timestep:
+                late_steps += int(lateness // physics.timestep)
                 if now - warned > 1:
-                    logger.warning("A physics step ran %.1f ms late", 1e3 * (now - due))
+                    logger.warning("A physics step ran %.1f ms late", 1e3 * lateness)
                     warned = now
             lag = now - origin - physics.time
             if lag > MAX_LAG:
@@ -145,16 +144,17 @@ def _run(make_physics: Callable[[], Physics], connection: Connection) -> None:
                     }
                 case "pause":
                     running = False
-                case "resume" if not running:
-                    origin = time.monotonic() - physics.time
-                    running = True
+                case "resume":
+                    if not running:
+                        origin = time.monotonic() - physics.time
+                        running = True
                 case "reset":
                     physics.reset()
                     running, resets = False, resets + 1
                 case "stop":
                     return
-        except ValueError as error:
-            reply = error
+                case _:
+                    raise ValueError(f"Unknown command {command!r}")
         except Exception as error:
             logger.exception("The simulation failed to %s", command)
             reply = error
@@ -192,7 +192,10 @@ def _time_constraint(period: float) -> None:
     ticks = period * 1e9 * timebase[1] / timebase[0]
     policy = _TimeConstraintPolicy(round(ticks), round(ticks / 2), round(ticks), 1)
     libc.mach_thread_self.restype = ctypes.c_uint32
-    thread = libc.mach_thread_self()
-    policy_set = libc.thread_policy_set
-    if policy_set(thread, THREAD_TIME_CONSTRAINT_POLICY, ctypes.byref(policy), 4):
+    if libc.thread_policy_set(
+        libc.mach_thread_self(),
+        THREAD_TIME_CONSTRAINT_POLICY,
+        ctypes.byref(policy),
+        THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+    ):
         logger.warning("Physics runs at normal priority: macOS refused real time")

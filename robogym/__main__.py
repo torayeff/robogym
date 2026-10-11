@@ -20,7 +20,6 @@ def main() -> None:
     delete = actions.add_parser("delete", help="stop a sandbox")
     delete.add_argument("sandbox_id")
     args = parser.parse_args()
-    # Imported here: the physics process re-imports this module and needs no server.
     if args.command == "serve":
         from robogym.server import serve
 

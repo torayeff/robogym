@@ -6,6 +6,8 @@ import math
 import cv2
 import numpy as np
 
+PINHOLE_OVERSAMPLING = 1.5
+
 
 @dataclasses.dataclass(frozen=True)
 class Lens:
@@ -34,9 +36,6 @@ class Lens:
         return math.degrees(2 * math.atan(abs(top)))
 
 
-# Nominal, from the U20CAM-1080P-S1 manual (v1.1), not a calibration: an equidistant
-# lens (k = 0) with 106° across the sensor's 1920 pixels, cropped to 4:3 and scaled
-# to 640 x 480.
 _FOCAL_PX = 960 / math.radians(53) * 480 / 1080
 U20CAM = Lens(640, 480, _FOCAL_PX, _FOCAL_PX, 319.5, 239.5)
 
@@ -51,9 +50,7 @@ class LensMap:
     def __init__(self, lens: Lens):
         u, v = np.meshgrid(np.arange(lens.width), np.arange(lens.height))
         rays = lens.rays(np.stack([u, v], -1))
-        # 1.5 times as fine as the lens at its sharpest, the centre; wide enough to
-        # hold every ray.
-        f = 1.5 * max(lens.fx, lens.fy)
+        f = PINHOLE_OVERSAMPLING * max(lens.fx, lens.fy)
         half_width = math.ceil(f * np.abs(rays[..., 0]).max()) + 1
         half_height = math.ceil(f * np.abs(rays[..., 1]).max()) + 1
         self.pinhole_width, self.pinhole_height = 2 * half_width, 2 * half_height

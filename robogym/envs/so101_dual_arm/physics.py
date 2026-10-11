@@ -14,13 +14,11 @@ DIVERGED = (
     mujoco.mjtWarning.mjWARN_BADQVEL,
     mujoco.mjtWarning.mjWARN_BADQACC,
 )
-
-# reset() puts each object's centre within NEAR of its own arm's shoulder-pan axis,
-# at least FAR from the other arm's, and at x >= FRONT, in the top camera's view.
+PAN_JOINTS = ("left_shoulder_pan", "right_shoulder_pan")
 NEAR = {"block": 0.33, "tray": 0.36}
 FAR = {"block": 0.47, "tray": 0.52}
 FRONT = {"block": 0.20, "tray": 0.26}
-ON_SIDE = np.array([np.sqrt(0.5), np.sqrt(0.5), 0, 0])  # a quarter turn about x
+ON_SIDE = np.array([np.sqrt(0.5), np.sqrt(0.5), 0, 0])
 
 
 def compile_scene(visual: bool) -> mujoco.MjModel:
@@ -44,16 +42,15 @@ def table_height(model: mujoco.MjModel) -> float:
 
 
 def _share_meshes(spec: mujoco.MjSpec) -> None:
-    """Point the geoms of identical meshes at one of them.
-
-    <attach> copies a model's meshes for every prefix it's attached with.
-    """
+    """Point the geoms of identical meshes at one of them."""
     model = spec.compile()
     kept, copies = {}, {}
     for mesh in spec.meshes:
         key = (mesh.maxhullvert, mesh.material, *_mesh_data(model, mesh.name))
-        if (original := kept.setdefault(key, mesh.name)) != mesh.name:
-            copies[mesh.name] = original
+        if key in kept:
+            copies[mesh.name] = kept[key]
+        else:
+            kept[key] = mesh.name
     for geom in spec.geoms:
         geom.meshname = copies.get(geom.meshname, geom.meshname)
     for name in copies:
@@ -67,31 +64,23 @@ def _mesh_data(model: mujoco.MjModel, name: str) -> tuple[bytes, ...]:
     def rows(field: str) -> bytes:
         start = getattr(model, f"mesh_{field}adr")[i]
         count = getattr(model, f"mesh_{field}num")[i]
-        return getattr(model, f"mesh_{field}")[start:][:count].tobytes()
+        return getattr(model, f"mesh_{field}")[start : start + count].tobytes()
 
     return tuple(rows(field) for field in ("vert", "normal", "texcoord", "face"))
 
 
 class So101DualArmPhysics(Physics):
-    """scene.xml without what only drawing uses, from the folded rest pose.
-
-    `seed` repeats the layouts that resets draw.
-    """
+    """scene.xml without what only drawing uses; `seed` repeats the reset layouts."""
 
     def __init__(self, seed: int | None = None):
         self.model = compile_scene(visual=False)
         self.data = mujoco.MjData(self.model)
         self._rng = np.random.default_rng(seed)
         self._table_height = table_height(self.model)
-        self._ranges = {
-            self.model.actuator(i).name: self.model.actuator_ctrlrange[i].tolist()
-            for i in range(self.model.nu)
-        }
         mujoco.mj_kinematics(self.model, self.data)
-        self._pan_axes = {  # the xy of each arm's shoulder-pan axis; 1 is the left
-            side: self.data.joint(f"{arm}_shoulder_pan").xanchor[:2].copy()
-            for side, arm in ((1, "left"), (-1, "right"))
-        }
+        self._pan_axes = np.array(
+            [self.data.joint(joint).xanchor[:2] for joint in PAN_JOINTS]
+        )
         self.reset()
 
     @property
@@ -108,21 +97,7 @@ class So101DualArmPhysics(Physics):
             raise FloatingPointError(f"The simulation diverged at {self.time:.3f} s")
 
     def act(self, action: dict) -> None:
-        goals = action.get("joints") if isinstance(action, dict) else None
-        if not isinstance(goals, dict) or action.keys() != {"joints"}:
-            raise ValueError('An action is {"joints": {joint: goal in radians, ...}}.')
-        for joint, goal in goals.items():
-            if joint not in self._ranges:
-                joints = ", ".join(self._ranges)
-                raise ValueError(f"Unknown joint {joint!r}; the joints are {joints}.")
-            low, high = self._ranges[joint]
-            is_number = isinstance(goal, int | float) and not isinstance(goal, bool)
-            if not (is_number and low <= goal <= high):
-                raise ValueError(
-                    f"The goal for {joint} must be a number from {low} to {high}, "
-                    f"not {goal!r}."
-                )
-        for joint, goal in goals.items():
+        for joint, goal in action["joints"].items():
             self.data.actuator(joint).ctrl = goal
 
     def state(self) -> np.ndarray:
@@ -132,13 +107,15 @@ class So101DualArmPhysics(Physics):
 
     def reset(self) -> None:
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.model.key("rest").id)
-        for name, side in zip(("block", "tray"), self._rng.permutation([1, -1])):
-            self.data.joint(name).qpos = self._resting_pose(name, side)
+        near, far = self._rng.permutation(self._pan_axes)
+        self.data.joint("block").qpos = self._resting_pose("block", near, far)
+        self.data.joint("tray").qpos = self._resting_pose("tray", far, near)
 
-    def _resting_pose(self, name: str, side: int) -> list[float]:
-        """A free-joint qpos for the object, beside the arm at `side`."""
-        near, far = self._pan_axes[side], self._pan_axes[-side]
-        while True:  # sample NEAR's bounding box, cut at FRONT, until a centre fits
+    def _resting_pose(
+        self, name: str, near: np.ndarray, far: np.ndarray
+    ) -> list[float]:
+        """A free-joint qpos for the object, beside the pan axis `near`."""
+        while True:
             centre = self._rng.uniform(
                 [FRONT[name], near[1] - NEAR[name]], near + NEAR[name]
             )
@@ -151,8 +128,6 @@ class So101DualArmPhysics(Physics):
         yaw = self._rng.uniform(-np.pi, np.pi)
         upright = np.array([np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)])
         if name == "block" and self._rng.random() < 0.5:
-            # Lying on a side: its origin is at one end, so it moves half its length
-            # along the table and rises by half its width.
             half_width, _, half_length = self.model.geom("block").size
             lying = np.empty(4)
             mujoco.mju_mulQuat(lying, upright, ON_SIDE)

@@ -60,30 +60,10 @@ def test_act_moves_a_joint_to_its_goal_and_the_others_hold(physics):
     assert angle(physics, "right_shoulder_lift") == pytest.approx(held, abs=0.01)
 
 
-@pytest.mark.parametrize(
-    ("action", "error"),
-    [
-        ({"gripper": 1.0}, "An action is"),
-        (
-            {"joints": {"left_shoulder_pan": 0.5, "left_elbow": 0.0}},
-            "Unknown joint 'left_elbow'",
-        ),
-        ({"joints": {"left_gripper": 2.0}}, "from -0.17453 to 1.74533"),
-        ({"joints": {"left_gripper": "open"}}, "must be a number"),
-        ({"joints": {"left_gripper": float("nan")}}, "must be a number"),
-    ],
-)
-def test_act_rejects_a_bad_action_and_changes_nothing(physics, action, error):
-    goals = physics.data.ctrl.copy()
-    with pytest.raises(ValueError, match=error):
-        physics.act(action)
-    assert np.array_equal(physics.data.ctrl, goals)
-
-
 def test_reset_folds_the_arms_and_draws_new_object_poses(physics):
     start = {name: physics.data.joint(name).qpos.copy() for name in ("block", "tray")}
     physics.act({"joints": {"left_shoulder_lift": 0.0, "right_gripper": 1.7}})
-    physics.data.joint("block").qpos[2] += 0.05  # so that it falls
+    physics.data.joint("block").qpos[2] += 0.05
     run(physics, 2.0)
     physics.reset()
     rest = physics.model.key("rest")
@@ -125,7 +105,7 @@ def pan_axis(physics: So101DualArmPhysics, arm: str) -> np.ndarray:
 
 
 def test_each_object_starts_at_rest_where_only_the_arm_beside_it_reaches(physics):
-    heights = set()
+    block_heights = set()
     for _ in range(20):
         physics.reset()
         start = centres(physics)
@@ -135,15 +115,16 @@ def test_each_object_starts_at_rest_where_only_the_arm_beside_it_reaches(physics
             assert np.linalg.norm([x, y] - pan_axis(physics, own)) <= NEAR[name]
             assert np.linalg.norm([x, y] - pan_axis(physics, other)) >= FAR[name]
             assert x >= FRONT[name]
-        heights.add(round(start["block"][2], 3))
+        block_heights.add(round(start["block"][2], 3))
         run(physics, 0.5)
         for name, centre in centres(physics).items():
             assert centre == pytest.approx(start[name], abs=1e-3)
-    assert heights == {0.775, 0.75}  # the block stood and lay
+    standing, lying = 0.775, 0.75
+    assert block_heights == {standing, lying}
 
 
 def test_a_diverging_step_raises(physics, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)  # where MuJoCo logs the warning
+    monkeypatch.chdir(tmp_path)
     physics.data.qvel[0] = np.nan
     with pytest.raises(FloatingPointError, match="diverged"):
         physics.step(1)
