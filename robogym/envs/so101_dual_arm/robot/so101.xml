@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <mujoco model="so101">
-  <!-- Adapted from MuJoCo Menagerie robotstudio_so101, revision 822c2d8f877dd166c5b7d3c9f7e3c3b6589473b7. Modified for white printed parts and a U20CAM wrist camera; see NOTICE.md. -->
+  <!-- Adapted from MuJoCo Menagerie robotstudio_so101, revision 822c2d8f877dd166c5b7d3c9f7e3c3b6589473b7. Modified for white printed parts and a U20CAM wrist camera; see ../README.md. -->
   <compiler angle="radian" meshdir="assets" autolimits="true" />
   <default>
     <mesh maxhullvert="128" />
