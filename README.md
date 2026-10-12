@@ -133,3 +133,7 @@ flowchart TB
 
 - `robogym sandbox create <env>` ([robogym/sandbox.py](robogym/sandbox.py)) starts a `modal.Sandbox` in the Modal app `robogym` that runs `robogym serve <env> --host 0.0.0.0 --port 8000`. The image is built from the environment's `Dockerfile`. `cpu`, `memory` and `gpu` come from its `sandbox.toml`, with `vcpus` halved because a Modal core is two vCPUs.
 - Port 8000 is published through an encrypted Modal tunnel, and `create` returns once a TCP readiness probe on it connects. Each sandbox has an `env` tag, which `robogym sandbox list` prints.
+
+## License
+
+Copyright 2026 [Robominder](https://robominder.ai). Licensed under the [Apache License 2.0](LICENSE). Robot models from other projects keep their own licenses, which each environment's README gives.
