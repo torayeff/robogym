@@ -4,7 +4,10 @@ import importlib
 
 from robogym.env import Env
 
-ENVS = {"so101_dual_arm": "robogym.envs.so101_dual_arm.env:So101DualArm"}
+ENVS = {
+    "so101_dual_arm": "robogym.envs.so101_dual_arm.env:So101DualArm",
+    "so101_rubiks_cube": "robogym.envs.so101_rubiks_cube.env:So101RubiksCube",
+}
 
 
 def load(name: str) -> type[Env]:

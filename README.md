@@ -25,6 +25,7 @@ On Linux without a display, set `MUJOCO_GL=egl` so that MuJoCo can render offscr
 ## Environments
 
 - [so101_dual_arm](robogym/envs/so101_dual_arm/README.md): two SO-101 arms at a table with a block and a tray, simulated in MuJoCo.
+- [so101_rubiks_cube](robogym/envs/so101_rubiks_cube/README.md): two SO-101 arms at a table with an articulated 3×3×3 Rubik's cube, simulated in MuJoCo.
 
 Each environment's README describes its robot, its observations and its actions.
 
